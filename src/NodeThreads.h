@@ -136,6 +136,9 @@ class DCThread : public Thread {
     mClient.connect(mName);
   }
 
+  const char * name ()
+  {return mName;}
+
   virtual void poll () {}
   
   virtual void loop() {

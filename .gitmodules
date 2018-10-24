@@ -7,3 +7,15 @@
 [submodule "lib/arduino-mqtt"]
 	path = lib/arduino-mqtt
 	url = https://github.com/256dpi/arduino-mqtt.git
+[submodule "lib/OneWire"]
+	path = lib/OneWire
+	url = https://github.com/PaulStoffregen/OneWire.git
+[submodule "lib/Arduino-Temperature-Control-Library"]
+	path = lib/Arduino-Temperature-Control-Library
+	url = https://github.com/milesburton/Arduino-Temperature-Control-Library.git
+[submodule "lib/DHT-sensor-library"]
+	path = lib/DHT-sensor-library
+	url = https://github.com/adafruit/DHT-sensor-library.git
+[submodule "lib/Adafruit_Sensor"]
+	path = lib/Adafruit_Sensor
+	url = https://github.com/adafruit/Adafruit_Sensor

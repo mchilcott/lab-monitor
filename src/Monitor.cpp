@@ -9,6 +9,7 @@
 #include <ArduinoJson.h>
 
 #include "AnalogMonitor.h"
+#include <memory>
 
 // Put authorisation in separate file to keep out of repo
 #include "auth.h"
@@ -32,7 +33,30 @@ WiFiClient espClient; // This is required by DCThread
 ThreadManager tm;
 MQTTClient node_client;
 
-AnalogMonitor am (tm, "AnalogMonitor");
+///////////////////////////////////////////////////////////
+// BEGIN NODE CONFIGURATION
+///////////////////////////////////////////////////////////
+const char * node_name = "TestBed";
+
+std::vector<DCThread *> collectors = {
+
+  // Monitor the analog voltage
+  // new AnalogMonitor (tm, "AnalogMonitorTest"),
+
+  // Pressure sensor connected to 
+  // new AnalogMonitor (tm, "AnalogMonitorTest"),
+
+  // Basic Temperature sensor
+  //new DS18B20Monitor(tm, "Temperature"),
+  
+  // Flow rate sensor with arduino (period = 1000 ms)
+  // new I2CWordMonitor(tm, "Flowrate", 1000, 1.0/4.1)
+  new DHTTemperatureMonitor(tm, "Local Atmos")
+};
+
+///////////////////////////////////////////////////////////
+// END NODE CONFIGURATION
+///////////////////////////////////////////////////////////
 
 // Saving config data: Should we do it now?
 bool shouldSaveConfig = false;
@@ -55,7 +79,7 @@ void setup() {
   // Read configuration from Flash
   Serial.println("mounting FS...");
 
-  if (SPIFFS.begin() && false) {
+  if (SPIFFS.begin()) {
     Serial.println("mounted file system");
     if (SPIFFS.exists("/config.json")) {
       // File exists, reading and loading
@@ -106,6 +130,7 @@ void setup() {
   // Setup Web-based firmware updates and info
   MDNS.begin(host);
   
+  // TODO: Add some info about available measurements
   httpUpdater.setup(&httpServer, update_path, update_username, update_password);
   httpServer.on("/", []() {
     String msg = "This Node is alive\n\n";
@@ -162,6 +187,7 @@ void setup() {
   topic += ESP.getChipId();
   topic += "/";
   node_client.setWill((topic + "$status").c_str(), "lost");
+
   for (int i = 0; i < n_attempts; ++i)
   {
     if (node_client.connect(label))
@@ -169,14 +195,16 @@ void setup() {
       connected = true;
       break;
     }
+    Serial.println("Failed MQTT connection attempt.");
     delay(500);
   }
 
   if (!connected)
   {
-    // Still couldn't connect - start up the config portal to attemp to get things going
-    // This is not yet functional.
+    // Still couldn't connect - start up the config portal to attempt to get things going
+    // This very hacky, because the sensible way didn't seem to work
     Serial.println("Unable to connect to MQTT");
+    wifiManager.resetSettings();
     delay(500);
     ESP.reset();
     //WiFiManagerParameter custom_text("<h2>Unable to connect to MQTT</h2>");
@@ -187,12 +215,22 @@ void setup() {
   // Send some data to the server. This is very badly based on the homie convention
 
   node_client.publish(topic + "$status", "init");
-  node_client.publish(topic + "$name", "MonitoringStation");
+  node_client.publish(topic + "$name", node_name);
   node_client.publish(topic + "$localip", WiFi.localIP().toString());
   node_client.publish(topic + "$mac", WiFi.macAddress());
   node_client.publish(topic + "$stats/rssi", String() + WiFi.RSSI());
   node_client.publish(topic + "$stats/interval", "-1");
-  node_client.publish(topic + "$nodes", "AnalogMonitor[]");
+
+  // Build a node string
+  String node_str = "";
+
+  for (auto it = collectors.begin(); it != collectors.end(); ++it)
+  {
+    node_str += (*it)->name();
+    node_str += ',';
+  }
+
+  node_client.publish(topic + "$nodes", node_str + "[]");
   node_client.publish(topic + "$fw/name", "ArduinoMonitor");
   node_client.publish(topic + "$fw/version", __DATE__ " " __TIME__);
   node_client.publish(topic + "$implementation", "NodeMCU");
@@ -201,8 +239,10 @@ void setup() {
   // Start up the monitoring threads
   //DCThread dc(tm, "Analog Data", MQTTServer, atoi(MQTTPort));
 
-  am.beginMQTT(MQTTServer, atoi(MQTTPort));
-
+  for (auto it = collectors.begin(); it != collectors.end(); ++it)
+  {
+    (*it)->beginMQTT(MQTTServer, atoi(MQTTPort));
+  }
   node_client.publish(topic + "$status", "ready");
 }
 
