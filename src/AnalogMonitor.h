@@ -6,13 +6,11 @@
 class AnalogMonitor : public DCThread
 {
  private:
-  const char *mName;
   const char *mHost;
   double mScale;
   double mOffset;
   unsigned int mPeriod;
   const char * mUnits;
-  const char * mTopic;
   
  public:
   /**
@@ -32,14 +30,13 @@ class AnalogMonitor : public DCThread
    */
   AnalogMonitor(
                   ThreadManager & mgr,
-                  const char * name,
+                  const char * topic = "sensor/default/analongmon",
                   unsigned int period = 2000,
                   double scale = 1,
                   double offset = 0,
-                  const char * units = "V",
-                  const char * topic = "/sensor/data/analog"
+                  const char * units = "V"
                 )
-    : DCThread(mgr, name, period), mName(name), mScale(scale), mOffset(offset), mUnits(units), mTopic(topic)
+    : DCThread(mgr, topic, period), mScale(scale), mOffset(offset), mUnits(units)
   {}
 
   virtual void poll()
@@ -50,14 +47,12 @@ class AnalogMonitor : public DCThread
     // Cheap JSON
     String output = "{\"mean\": ";
     output += String(measurement, 3);
-    output += ", \"name\": \"";
-    output += mName;
-    output += "\", \"units\": \"";
+    output += ", \"units\": \"";
     output += mUnits;
     output += "\"}";
 
     // Put it out there
-    mClient.publish(mTopic, output);
+    mClient.publish(topic(), output);
   }
   
 
@@ -70,7 +65,6 @@ class DS18B20Monitor : public DCThread {
   private:
     boolean mInit; // Make sure init() runs on the first loop() call
     unsigned int mPin; // Pin the OneWire signal is connected to
-    const char * mTopic;
 
     OneWire mOW;
     DallasTemperature mSensor;
@@ -81,15 +75,14 @@ class DS18B20Monitor : public DCThread {
   public:
     DS18B20Monitor(
                     ThreadManager &mgr,
-                    const char * name,
+                    const char * topic = "sensor/default/temperature",
                     unsigned int period = 2000,
                     unsigned int pin = 2, // NodeMCU D4. Remeber: This is the GPIO pin number for the ESP module, not the NodeMCU label
-                    unsigned int resolution = 12,
-                    const char * topic = "/sensor/data/analog"
+                    unsigned int resolution = 12
                   )
-      : DCThread(mgr, name, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution), mLastRequestTime(millis()),
+      : DCThread(mgr, topic, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
       mConversionDelay(750 / (1 << (12 - resolution))), // This conversion formula is from the DallasTemperature WaitForConversion example
-      mConverting(false), mTopic(topic)
+      mLastRequestTime(millis()), mConverting(false)
     {} 
 
     void init () 
@@ -134,10 +127,8 @@ class DS18B20Monitor : public DCThread {
         // Cheap JSON
         String output = "{\"mean\": ";
         output += String(temperature, mResolution - 8);
-        output += ", \"name\": \"";
-        output += mName;
-        output += "\", \"units\": \"deg C\"}";
-        mClient.publish(mTopic, output);
+        output += ", \"units\": \"deg C\"}";
+        mClient.publish(topic(), output);
       }
 
       // Manage the polling, connection, etc
@@ -151,13 +142,11 @@ class DS18B20Monitor : public DCThread {
 class I2CWordMonitor : public DCThread
 {
  private:
-  const char *mName;
   const char *mHost;
   double mScale;
   double mOffset;
   unsigned int mPeriod;
   const char * mUnits;
-  const char * mTopic;
   unsigned int mAddr;
   unsigned int mI2C_sda;
   unsigned int mI2C_sdc;
@@ -180,17 +169,16 @@ class I2CWordMonitor : public DCThread
    */
   I2CWordMonitor(
                   ThreadManager & mgr,
-                  const char * name,
+                  const char * topic = "sensor/default/I2Cword",
                   unsigned int period = 2000,
                   double scale = 1,
                   double offset = 0,
                   const char * units = "V",
-                  const char * topic = "/sensor/data/analog",
                   unsigned int i2c_addr = 8, //Address of the remote device
                   unsigned int i2c_sda = 4, // NodeMCU D2. Connect to A4 on Arduino nano
                   unsigned int i2c_sdc = 5  // NodeMCU D1. Connect to A5 on Arduino nano
                 )
-    : DCThread(mgr, name, period), mName(name), mScale(scale), mOffset(offset), mUnits(units), mTopic(topic), mAddr(i2c_addr), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
+    : DCThread(mgr, topic, period), mScale(scale), mOffset(offset), mUnits(units), mAddr(i2c_addr), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
   {}
 
   uint32_t get_data()
@@ -218,14 +206,12 @@ class I2CWordMonitor : public DCThread
     // Cheap JSON
     String output = "{\"mean\": ";
     output += String(measurement, 3);
-    output += ", \"name\": \"";
-    output += mName;
-    output += "\", \"units\": \"";
+    output += ", \"units\": \"";
     output += mUnits;
     output += "\"}";
 
     // Put it out there
-    mClient.publish(mTopic, output);
+    mClient.publish(topic(), output);
   }
 
 };
@@ -247,14 +233,13 @@ class DHTTemperatureMonitor : public DCThread {
   public:
     DHTTemperatureMonitor(
                     ThreadManager &mgr,
-                    const char * name,
+                    const char * topic = "sensor/default/atmosphere",
                     unsigned int period = 2000,
                     unsigned int pin = 0, // NodeMCU D3
-                    unsigned int dht_type = DHT22,
-                    const char * topic = "/sensor/data/analog"
+                    unsigned int dht_type = DHT22
                   )
-      : DCThread(mgr, name, period), mInit(false), mPin(pin), mDHT(pin, dht_type), mLastRequestTime(millis()),
-      mConverting(false), mTopic(topic)
+      : DCThread(mgr, topic, period), mInit(false), mPin(pin), mTopic(topic), mDHT(pin, dht_type), mLastRequestTime(millis()),
+      mConverting(false)
     {
       sensor_t sensor;
       mDHT.temperature().getSensor(&sensor);
@@ -297,10 +282,10 @@ class DHTTemperatureMonitor : public DCThread {
           // Cheap JSON
           String output = "{\"mean\": ";
           output += String(temperature, 3);
-          output += ", \"name\": \"";
-          output += mName;
-          output += ":Temperature\", \"units\": \"deg C\"}";
-          mClient.publish(mTopic, output);
+          output += ", \"units\": \"deg C\"}";
+          String output_topic = topic();
+          output_topic += "/temperature";
+          mClient.publish(output_topic, output);
         }
 
         mDHT.humidity().getEvent(&event);
@@ -311,10 +296,10 @@ class DHTTemperatureMonitor : public DCThread {
           // Cheap JSON
           String output = "{\"mean\": ";
           output += String(humidity, 3);
-          output += ", \"name\": \"";
-          output += mName;
-          output += ":Rel Humidity\", \"units\": \"%\"}";
-          mClient.publish(mTopic, output);
+          output += ", \"units\": \"%\"}";
+          String output_topic = topic();
+          output_topic += "/rel_humidity";
+          mClient.publish(output_topic, output);
         }
       }
 

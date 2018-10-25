@@ -101,7 +101,7 @@ class DCThread : public Thread {
   // MQTT Connection
   MQTTClient mClient;
   WiFiClient mWiFi;
-  const char * mName;
+  const char * mTopic;
 
   // Timing for poll()
   unsigned int mPeriod;
@@ -112,10 +112,10 @@ class DCThread : public Thread {
  public:
   DCThread(
            ThreadManager &mgr,
-           const char *MQTTClientName,
+           const char *SensorTopic,
            unsigned int period = 0
            )
-   : Thread(mgr), mClient(), mName(MQTTClientName),  mPeriod(period), mLastMillis(millis())
+   : Thread(mgr), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis())
   {};
   
   void beginMQTT (
@@ -133,11 +133,13 @@ class DCThread : public Thread {
       return;
     }
     Serial.println("Offline");
-    mClient.connect(mName);
+    String name = "MonitorNode: ";
+    name += mTopic;
+    mClient.connect(name.c_str());
   }
 
-  const char * name ()
-  {return mName;}
+  const char * topic ()
+  {return mTopic;}
 
   virtual void poll () {}
   

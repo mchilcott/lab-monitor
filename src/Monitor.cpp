@@ -27,7 +27,7 @@ ESP8266HTTPUpdateServer httpUpdater;
 
 // For the threading and data collection
 
-char MQTTServer[64] = "192.168.4.2";
+char MQTTServer[64] = "hugin.px.otago.ac.nz";
 char MQTTPort[8] = "1883";
 WiFiClient espClient; // This is required by DCThread
 ThreadManager tm;
@@ -36,22 +36,37 @@ MQTTClient node_client;
 ///////////////////////////////////////////////////////////
 // BEGIN NODE CONFIGURATION
 ///////////////////////////////////////////////////////////
-const char * node_name = "TestBed";
+const char * node_name = "signal_monitor";
 
 std::vector<DCThread *> collectors = {
 
-  // Monitor the analog voltage
-  // new AnalogMonitor (tm, "AnalogMonitorTest"),
+  /////////////////////
+  // Examples
+  // - Monitor the analog voltage
+ new AnalogMonitor (tm, "sensor/default/analog"),
+  // - Temperature sensor
+  // new DS18B20Monitor(tm, "sensor/cooling/tank/temperature"), 
+  // - Flow rate sensor with arduino (period = 1000 ms)
+  // new I2CWordMonitor(tm, "sensor/cooling/water_in/flowrate", 1000, 1.0/4.1, 0, "L/min")
+  // - Pressure sensor connected to analog input
+  // new AnalogMonitor (tm, "sensor/cooling/water_in/pressure", 1000, (1200.0/2.62), -155, "kPa"),
+  // Atmospheric sensor
+  // new DHTTemperatureMonitor(tm, "sensor/lab/atmosphere")
+  // Atmospheric sensor
 
-  // Pressure sensor connected to 
-  // new AnalogMonitor (tm, "AnalogMonitorTest"),
-
-  // Basic Temperature sensor
-  //new DS18B20Monitor(tm, "Temperature"),
-  
-  // Flow rate sensor with arduino (period = 1000 ms)
-  // new I2CWordMonitor(tm, "Flowrate", 1000, 1.0/4.1)
-  new DHTTemperatureMonitor(tm, "Local Atmos")
+  /////////////////////
+  // Actual Device Settings
+  // - Dev Lab Monitor settings
+  // new DS18B20Monitor(tm, "sensor/cooling/tank/temperature", 1000),
+  // new DHTTemperatureMonitor(tm, "sensor/lab_dev/atmosphere", 30000)
+  // - Main Lab Water inlet monitoring
+  // new DHTTemperatureMonitor(tm, "sensor/lab/atmosphere", 30000),
+  // new I2CWordMonitor(tm, "sensor/cooling/water_in/flowrate", 1000, 1.0/4.1, 0, "L/min"),
+  // new AnalogMonitor (tm, "sensor/cooling/water_in/pressure", 1000, (1200.0/2.62), -155, "kPa")
+  // - Outside Atmospheric sensor
+  // new DHTTemperatureMonitor(tm, "sensor/outside/atmosphere", 30000)
+  // - Helmholtz Coil Monitor
+  // new DS18B20Monitor(tm, "sensor/cooling/coil/temperature", 1000)
 };
 
 ///////////////////////////////////////////////////////////
@@ -66,6 +81,38 @@ void saveConfigCallback () {
   Serial.println("Should save config");
   shouldSaveConfig = true;
 }
+
+// Status info update rate (seconds)
+const int update_interval = 30;
+unsigned long last_update = 0;
+// Status info update
+void publish_status ()
+{
+  String topic = "status/";
+  topic += ESP.getChipId();
+  topic += "/";
+  node_client.publish(topic + "$name", node_name);
+  node_client.publish(topic + "$localip", WiFi.localIP().toString());
+  node_client.publish(topic + "$mac", WiFi.macAddress());
+  node_client.publish(topic + "$stats/rssi", String() + WiFi.RSSI());
+  node_client.publish(topic + "$stats/interval", String() + update_interval);
+
+  // Build a node string
+  String node_str = "";
+
+  for (auto it = collectors.begin(); it != collectors.end(); ++it)
+  {
+    node_str += (*it)->topic();
+    node_str += ',';
+  }
+
+  node_client.publish(topic + "$nodes", node_str + "[]");
+  node_client.publish(topic + "$fw/name", "ArduinoMonitor");
+  node_client.publish(topic + "$fw/version", __DATE__ " " __TIME__);
+  node_client.publish(topic + "$implementation", "NodeMCU");
+ 
+}
+
 
 void setup() {
   
@@ -125,23 +172,6 @@ void setup() {
   wifiManager.addParameter(&custom_mqtt_port);
   wifiManager.autoConnect();
   WiFi.setAutoReconnect(true);
-  
-  ///////////////////////////////////////////////////////////
-  // Setup Web-based firmware updates and info
-  MDNS.begin(host);
-  
-  // TODO: Add some info about available measurements
-  httpUpdater.setup(&httpServer, update_path, update_username, update_password);
-  httpServer.on("/", []() {
-    String msg = "This Node is alive\n\n";
-    msg += "ADC Value: ";
-    msg += analogRead(0);
-    
-    httpServer.send(200, "text/plain", msg);
-  });
-  httpServer.begin();
-  
-  MDNS.addService("http", "tcp", 80);
 
   ///////////////////////////////////////////////////////////
   // Deal with parameters if they are updated
@@ -166,6 +196,26 @@ void setup() {
       configFile.close();
       //end save
   }
+  
+  ///////////////////////////////////////////////////////////
+  // Setup Web-based firmware updates and info
+  MDNS.begin(host);
+  
+  // TODO: Add some info about available measurements
+  httpUpdater.setup(&httpServer, update_path, update_username, update_password);
+  httpServer.on("/", []() {
+    String msg = "This Node is alive\n\n";
+    msg += "Services: ";
+    for (auto it = collectors.begin(); it != collectors.end(); ++it)
+      {
+        msg += (*it)->topic();
+        msg += ',';
+      }
+    httpServer.send(200, "text/plain", msg);
+  });
+  httpServer.begin();
+  
+  MDNS.addService("http", "tcp", 80);
 
   ///////////////////////////////////////////////////////////
   // Print some useful info
@@ -180,23 +230,30 @@ void setup() {
  
   node_client.begin(MQTTServer, atoi(MQTTPort), espClient);
   // Number of connection attempts:
-  int n_attempts = 5;
+  int n_attempts = 10;
   bool connected = false;
-  const char * label = (String() + "Node:" + ESP.getChipId()).c_str();
-  String topic = "/sensor/status/";
+  String label =" Node:";
+  label += ESP.getChipId();
+  label += ":";
+  label += node_name;
+
+  String topic = "status/";
   topic += ESP.getChipId();
   topic += "/";
   node_client.setWill((topic + "$status").c_str(), "lost");
 
   for (int i = 0; i < n_attempts; ++i)
   {
-    if (node_client.connect(label))
+    if (node_client.connect(label.c_str()))
     {
       connected = true;
       break;
     }
-    Serial.println("Failed MQTT connection attempt.");
-    delay(500);
+    Serial.print(MQTTServer);
+    Serial.print(":");
+    Serial.print(MQTTPort);
+    Serial.println(" - Failed MQTT connection attempt.");
+    delay(1000);
   }
 
   if (!connected)
@@ -215,26 +272,8 @@ void setup() {
   // Send some data to the server. This is very badly based on the homie convention
 
   node_client.publish(topic + "$status", "init");
-  node_client.publish(topic + "$name", node_name);
-  node_client.publish(topic + "$localip", WiFi.localIP().toString());
-  node_client.publish(topic + "$mac", WiFi.macAddress());
-  node_client.publish(topic + "$stats/rssi", String() + WiFi.RSSI());
-  node_client.publish(topic + "$stats/interval", "-1");
-
-  // Build a node string
-  String node_str = "";
-
-  for (auto it = collectors.begin(); it != collectors.end(); ++it)
-  {
-    node_str += (*it)->name();
-    node_str += ',';
-  }
-
-  node_client.publish(topic + "$nodes", node_str + "[]");
-  node_client.publish(topic + "$fw/name", "ArduinoMonitor");
-  node_client.publish(topic + "$fw/version", __DATE__ " " __TIME__);
-  node_client.publish(topic + "$implementation", "NodeMCU");
- 
+  publish_status();
+  last_update = millis();
   ///////////////////////////////////////////////////////////
   // Start up the monitoring threads
   //DCThread dc(tm, "Analog Data", MQTTServer, atoi(MQTTPort));
@@ -250,4 +289,9 @@ void loop() {
   httpServer.handleClient();
   node_client.loop();
   tm.handle();
+  if (millis() - last_update > update_interval * 1000)
+  {
+    last_update = millis();
+    publish_status();
+  }
 }
