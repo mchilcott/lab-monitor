@@ -107,8 +107,8 @@ class DCThread : public Thread {
   unsigned int mPeriod;
   unsigned int mLastMillis;
 
+  String mClientName;
 
- 
  public:
   DCThread(
            ThreadManager &mgr,
@@ -116,7 +116,11 @@ class DCThread : public Thread {
            unsigned int period = 0
            )
    : Thread(mgr), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis())
-  {};
+    {
+      String name = "MonitorNode: ";
+      name += mTopic;
+      mClientName = name;
+    };
   
   void beginMQTT (
             const char *MQTTHost,
@@ -126,16 +130,16 @@ class DCThread : public Thread {
       mClient.begin(MQTTHost, MQTTPort, mWiFi);
     }
 
-  void try_connect() {
+  bool try_connect() {
     if (WiFi.status() != WL_CONNECTED){
       // If wifi isn't connected, yeild
       Serial.println("WiFi Disconnected");
-      return;
+      return false;
     }
     Serial.println("Offline");
     String name = "MonitorNode: ";
     name += mTopic;
-    mClient.connect(name.c_str());
+    return mClient.connect(name.c_str());
   }
 
   const char * topic ()
@@ -159,4 +163,140 @@ class DCThread : public Thread {
       }
     }
   }
+};
+
+class CallbackBroker {
+    private:
+        static std::map<MQTTClient *, std::function<void(String &, String &)>> msCallbacks;
+    
+    
+    public:
+        static void callback_target(MQTTClient * client, char topic[], char bytes[], int length)
+        {
+            auto it = msCallbacks.find(client);
+            
+            if (it == msCallbacks.end())
+            {
+                Serial.println("ERROR: CallbackBroker failed to find the right client");
+                return;
+            }
+            // create topic string
+            String str_topic = String((const char *)topic);
+            // create payload string
+            String str_payload;
+            if ((const char *) bytes != nullptr) 
+                str_payload = String((const char *)bytes);
+                
+            (*it).second(str_topic, str_payload);
+        }
+        
+        static void register_cb (MQTTClient *client, std::function<void(String &, String &)> func)
+        {
+            msCallbacks.insert(std::make_pair(client, func));
+        }
+        
+};
+
+
+class ControlThread : public DCThread {
+ protected:
+  
+ public:
+  ControlThread(
+           ThreadManager &mgr,
+           const char *topic,
+           unsigned int period = 0
+           )
+   : DCThread(mgr, topic, period)
+  {};
+  
+  void beginMQTT (
+            const char *MQTTHost,
+            const int MQTTPort
+           )
+    {
+        mClient.begin(MQTTHost, MQTTPort, mWiFi);
+        CallbackBroker::register_cb(&mClient, [this](String &a, String &b){this->onMessage(a,b);});
+        mClient.onMessageAdvanced(&CallbackBroker::callback_target);
+    }
+
+  virtual void poll () {}
+  
+  virtual void loop() {
+    DCThread::loop();
+  }
+
+  virtual void onDisconnect() {};
+
+  virtual void onConnect() 
+    {
+      //mClient.subscribe(mTopic);
+    };
+  
+  virtual void onMessage(String &topic, String &payload) {};
+};
+
+
+
+class HomieThread : public ControlThread {
+    private:
+        String mTopicBase;
+        String mLabel;
+        String mStatusTopic;
+        String mNodeName;
+    public:
+    HomieThread(
+           ThreadManager &mgr,
+           String node_name,
+           const char *basetopic = "status/",
+           unsigned int period = 30
+    ) : mNodeName(node_name), ControlThread(mgr, basetopic, period)
+    {
+        mTopicBase = String(basetopic);
+        
+        mLabel = String(node_name);
+        
+        mTopicBase += String(ESP.getChipId(), HEX);
+        mTopicBase += "/";
+        mTopic = mTopicBase.c_str();
+        
+        mStatusTopic = mTopicBase + "$status";
+        
+        mClient.setWill(mStatusTopic.c_str(), "lost");
+        
+        String label =" Node:";
+        label += String(ESP.getChipId(), HEX);
+        label += ":";
+        label += node_name;
+        mClientName = label;
+    }
+
+    
+    virtual void poll ()
+    {
+        mClient.publish(mTopicBase + "$name", mNodeName);
+        mClient.publish(mTopicBase + "$localip", WiFi.localIP().toString());
+        mClient.publish(mTopicBase + "$mac", WiFi.macAddress());
+        mClient.publish(mTopicBase + "$stats/rssi", String() + WiFi.RSSI());
+        mClient.publish(mTopicBase + "$stats/interval", String() + mPeriod);
+    
+        // Build a node string
+        String node_str = "";
+    
+        //for (auto it = collectors.begin(); it != collectors.end(); ++it)
+        //{
+        //  node_str += (*it)->topic();
+        //  node_str += ',';
+        //}
+    
+        mClient.publish(mTopicBase + "$nodes", node_str + "[]");
+        mClient.publish(mTopicBase + "$fw/name", "ArduinoMonitor");
+        mClient.publish(mTopicBase + "$fw/version", __DATE__ " " __TIME__);
+        mClient.publish(mTopicBase + "$implementation", "NodeMCU");
+    }
+    
+    void publish_status (const char * new_status)
+    {
+        mClient.publish(mStatusTopic, new_status);
+    }
 };

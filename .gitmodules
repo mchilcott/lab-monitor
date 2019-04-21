@@ -19,3 +19,15 @@
 [submodule "lib/Adafruit_Sensor"]
 	path = lib/Adafruit_Sensor
 	url = https://github.com/adafruit/Adafruit_Sensor
+[submodule "lib/Adafruit-MAX31855-library"]
+	path = lib/Adafruit-MAX31855-library
+	url = https://github.com/adafruit/Adafruit-MAX31855-library
+[submodule "lib/Adafruit_MCP9600"]
+	path = lib/Adafruit_MCP9600
+	url = https://github.com/adafruit/Adafruit_MCP9600
+[submodule "lib/Adafruit_HMC5883_Unified"]
+	path = lib/Adafruit_HMC5883_Unified
+	url = https://github.com/adafruit/Adafruit_HMC5883_Unified
+[submodule "lib/Adafruit_BusIO"]
+	path = lib/Adafruit_BusIO
+	url = https://github.com/adafruit/Adafruit_BusIO.git

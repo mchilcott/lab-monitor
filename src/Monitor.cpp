@@ -16,34 +16,24 @@
 //const char* update_username = "...";
 //const char* update_password = "...";
 
-/*
- * Some stuff for firmware updating
- */
-const char* host = wifi_station_get_hostname();
-const char* update_path = "/firmware";
-
-ESP8266WebServer httpServer(80);
-ESP8266HTTPUpdateServer httpUpdater;
-
 // For the threading and data collection
 
 char MQTTServer[64] = "hugin.px.otago.ac.nz";
 char MQTTPort[8] = "1883";
-WiFiClient espClient; // This is required by DCThread
 ThreadManager tm;
-MQTTClient node_client;
+std::map<MQTTClient *, std::function<void(String &, String &)>> CallbackBroker::msCallbacks;
 
 ///////////////////////////////////////////////////////////
 // BEGIN NODE CONFIGURATION
 ///////////////////////////////////////////////////////////
-const char * node_name = "signal_monitor";
+const char * node_name = "dipole_laser_monitor";
 
 std::vector<DCThread *> collectors = {
 
   /////////////////////
   // Examples
   // - Monitor the analog voltage
- new AnalogMonitor (tm, "sensor/default/analog"),
+  //new AnalogMonitor (tm, "sensor/default/analog"),
   // - Temperature sensor
   // new DS18B20Monitor(tm, "sensor/cooling/tank/temperature"), 
   // - Flow rate sensor with arduino (period = 1000 ms)
@@ -52,14 +42,40 @@ std::vector<DCThread *> collectors = {
   // new AnalogMonitor (tm, "sensor/cooling/water_in/pressure", 1000, (1200.0/2.62), -155, "kPa"),
   // Atmospheric sensor
   // new DHTTemperatureMonitor(tm, "sensor/lab/atmosphere")
-  // Atmospheric sensor
+
+  // Many Temperature Sensors
+  // new DS18B20MultiMonitor(tm,
+  //     {
+  //       std::make_pair(0, "sensor/cooling/mosfet/main0"),
+  //       std::make_pair(1, "sensor/cooling/mosfet/main1"),
+  //       std::make_pair(2, "sensor/cooling/mosfet/main2"),
+  //       std::make_pair(3, "sensor/cooling/mosfet/main3"),
+  //       std::make_pair(4, "sensor/cooling/mosfet/main4"),
+  //       std::make_pair(5, "sensor/cooling/mosfet/main5")
+  //     }
+  //   )
+
+  // Multiple analog inputs with a Mux
+  new AnalogMuxMonitor(tm,
+    {
+      std::make_pair(4, "sensor/big_laser/pump_diode/temperature_set"),
+      std::make_pair(5, "sensor/big_laser/pump_diode/temperature"),
+      std::make_pair(6, "sensor/big_laser/pump_diode/current"),
+      std::make_pair(7, "sensor/big_laser/power"),
+      std::make_pair(1, "sensor/big_laser/seed/power")
+    },
+    {0.947, 0.947, 0.947 * 5.065, 0.947 * 13.87, 2.24 * 10.3},
+    {0.0, 0.0, -0.026, 0.321, -0.044},
+    {"V", "V", "A", "W", "mW"}
+  )
 
   /////////////////////
-  // Actual Device Settings
+  // Actual Device Settings (NB: Don't forget to change node_name)
   // - Dev Lab Monitor settings
   // new DS18B20Monitor(tm, "sensor/cooling/tank/temperature", 1000),
-  // new DHTTemperatureMonitor(tm, "sensor/lab_dev/atmosphere", 30000)
-  // - Main Lab Water inlet monitoring
+  // new DHTTemperatureMonitor(tm, "sensor/lab_dev/atmosphere", 30000),
+  // new AnalogMonitor (tm, "sensor/cooling/tank/base_pressure", 1000, (1200.0/2.62), -155, "kPa")
+  // - Main Lab Water inlet monitoringlllllllllllllllllllllllllllllllllllll
   // new DHTTemperatureMonitor(tm, "sensor/lab/atmosphere", 30000),
   // new I2CWordMonitor(tm, "sensor/cooling/water_in/flowrate", 1000, 1.0/4.1, 0, "L/min"),
   // new AnalogMonitor (tm, "sensor/cooling/water_in/pressure", 1000, (1200.0/2.62), -155, "kPa")
@@ -69,6 +85,7 @@ std::vector<DCThread *> collectors = {
   // new DS18B20Monitor(tm, "sensor/cooling/coil/temperature", 1000)
 };
 
+HomieThread homie (tm, node_name);
 ///////////////////////////////////////////////////////////
 // END NODE CONFIGURATION
 ///////////////////////////////////////////////////////////
@@ -82,37 +99,15 @@ void saveConfigCallback () {
   shouldSaveConfig = true;
 }
 
-// Status info update rate (seconds)
-const int update_interval = 30;
-unsigned long last_update = 0;
-// Status info update
-void publish_status ()
-{
-  String topic = "status/";
-  topic += ESP.getChipId();
-  topic += "/";
-  node_client.publish(topic + "$name", node_name);
-  node_client.publish(topic + "$localip", WiFi.localIP().toString());
-  node_client.publish(topic + "$mac", WiFi.macAddress());
-  node_client.publish(topic + "$stats/rssi", String() + WiFi.RSSI());
-  node_client.publish(topic + "$stats/interval", String() + update_interval);
 
-  // Build a node string
-  String node_str = "";
+/*
+ * Some stuff for firmware updating
+ */
+const char* host = wifi_station_get_hostname();
+const char* update_path = "/firmware";
 
-  for (auto it = collectors.begin(); it != collectors.end(); ++it)
-  {
-    node_str += (*it)->topic();
-    node_str += ',';
-  }
-
-  node_client.publish(topic + "$nodes", node_str + "[]");
-  node_client.publish(topic + "$fw/name", "ArduinoMonitor");
-  node_client.publish(topic + "$fw/version", __DATE__ " " __TIME__);
-  node_client.publish(topic + "$implementation", "NodeMCU");
- 
-}
-
+ESP8266WebServer httpServer(80);
+ESP8266HTTPUpdateServer httpUpdater;
 
 void setup() {
   
@@ -209,7 +204,7 @@ void setup() {
     for (auto it = collectors.begin(); it != collectors.end(); ++it)
       {
         msg += (*it)->topic();
-        msg += ',';
+        msg += ','; 
       }
     httpServer.send(200, "text/plain", msg);
   });
@@ -228,23 +223,14 @@ void setup() {
   ///////////////////////////////////////////////////////////
   // Notify the MQTT server of our existance
  
-  node_client.begin(MQTTServer, atoi(MQTTPort), espClient);
+  homie.beginMQTT(MQTTServer, atoi(MQTTPort));
   // Number of connection attempts:
   int n_attempts = 10;
   bool connected = false;
-  String label =" Node:";
-  label += ESP.getChipId();
-  label += ":";
-  label += node_name;
-
-  String topic = "status/";
-  topic += ESP.getChipId();
-  topic += "/";
-  node_client.setWill((topic + "$status").c_str(), "lost");
 
   for (int i = 0; i < n_attempts; ++i)
   {
-    if (node_client.connect(label.c_str()))
+    if (homie.try_connect())
     {
       connected = true;
       break;
@@ -271,27 +257,20 @@ void setup() {
 
   // Send some data to the server. This is very badly based on the homie convention
 
-  node_client.publish(topic + "$status", "init");
-  publish_status();
-  last_update = millis();
+  homie.publish_status("init");
+  homie.poll();
+
   ///////////////////////////////////////////////////////////
   // Start up the monitoring threads
-  //DCThread dc(tm, "Analog Data", MQTTServer, atoi(MQTTPort));
 
   for (auto it = collectors.begin(); it != collectors.end(); ++it)
   {
     (*it)->beginMQTT(MQTTServer, atoi(MQTTPort));
   }
-  node_client.publish(topic + "$status", "ready");
+  homie.publish_status("ready");
 }
 
 void loop() {
   httpServer.handleClient();
-  node_client.loop();
   tm.handle();
-  if (millis() - last_update > update_interval * 1000)
-  {
-    last_update = millis();
-    publish_status();
-  }
 }
