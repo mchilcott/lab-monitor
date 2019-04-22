@@ -1,3 +1,9 @@
+# For this Project
+src/auth.h
+
+# PlatformIO
 .pioenvs
 .piolibdeps
-src/auth.h
+
+# VS Code
+.vscode
