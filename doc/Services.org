@@ -1,0 +1,183 @@
+* Introduction
+  This is the set of services facilitating data collection. Data will
+  be sent to the MQTT server, generally in a JSON format. Other
+  services can recieve the data from the MQTT server. The primary
+  service is a time series database, which stores the data for later
+  analysis and visualization.
+* Service overview
+  The services are in the following components:
+  - Mosquitto :: MQTT message broker. This recieves all the
+                measurements, and sends them out to the subscribing
+                services
+  - Telegraf :: Subscribes to MQTT channels to put data into InfluxDB
+  - Influx DB :: Stores the data for later analysis
+  - Chronograf :: Database administration, and querying
+  - Grafana :: Tool for analysis and visulalization, which works off
+               the data stored in the database
+  - NodeRED (Not yet implemented) :: Listens to MQTT and can perform
+       actions in response. I.e. I'm looking at using this platform
+       for automated monitoring.
+* Protocols
+** MQTT Data Messages
+   All data messages will be in JSON form, with the described fields.
+*** Analog
+   These contain:
+   - ~mean~ as data points, which correspond
+   to field keys for Influx. (Yet to extend to ~min~, ~max~, ~std~ depending on sensor.)
+   - name, units as tag keys for influx.
+*** Digital (Not yet in use)
+    These contain:
+    - state (boolean) as field key
+    - name as tag key
+
+* Running the services
+  Currently, we can spin up the services using ~docker-compose~:
+  
+  The command
+  #+BEGIN_EXAMPLE
+  docker-compose up -d
+  #+END_EXAMPLE
+  will start all the services as daemons. The services are all
+  connected on a private network, with the important ports exposed on
+  the host. Under this configuration, other services are accessed by
+  specifying the host name: i.e. when setting up the database in
+  grafana, the target is http://influxdb:8086, and will always be
+  here.
+  
+  This compose file also makes sure that the data persists
+
+** The Old Way
+  Everything can be started fresh by running ~SpinUp.sh~.
+
+  The following examples show the main ideas, but the docker commands in ~SpinUp.sh~ also include the command 
+  #+BEGIN_EXAMPLE
+    --restart always
+  #+END_EXAMPLE
+  which forces the docker service to restart the container of the service if it breaks down.
+** Mosquitto
+   Mosquitto runs a MQTT service on port 1883, with an HTTP bridge on
+   9001, that we don't currently use.
+*** Usage
+   Starting a server instance
+   #+BEGIN_EXAMPLE
+   docker run -ti --rm -p 1883:1883 -p 9001:9001 toke/mosquitto
+   #+END_EXAMPLE
+   
+   Listening to server messages: start a bash instance
+   #+BEGIN_EXAMPLE
+   docker run -it --rm toke/mosquitto bash
+   #+END_EXAMPLE
+   
+   Then connect a subscriber
+   #+BEGIN_EXAMPLE
+   mosquitto_sub -v -h 172.17.0.1 -t \$SYS/#
+   #+END_EXAMPLE
+   where the IP is the docker network IP of the host (which is forwarding the server ports)
+
+   Or log sensor messages
+   #+BEGIN_EXAMPLE
+   mosquitto_sub -v -h 172.17.0.1 -t /sensor/#
+   #+END_EXAMPLE
+** Telegraf
+   Telegraf does not expose any ports. It initiates connections to the database, and the MQTT server
+*** Useage
+   Generate sample config:
+
+   #+BEGIN_EXAMPLE
+   docker run --rm telegraf -sample-config > telegraf.conf
+   #+END_EXAMPLE
+
+   Run it with new config
+   #+BEGIN_EXAMPLE
+   docker run -v $PWD/telegraf.conf:/etc/telegraf/telegraf.conf:ro telegraf
+   #+END_EXAMPLE
+
+   #+BEGIN_EXAMPLE
+   docker run -d -v $(pwd)/telegraf.conf:/etc/telegraf/telegraf.conf:ro \
+   --name telegraf telegraf
+   #+END_EXAMPLE
+
+** InfluxDB
+
+InfluxDB has a server running on port 8086 to accept queries to the
+database. It used to also have a simple adminstration interface on
+port 8083, but this is deprecated. We now use Chronograf for the
+administration and query building.
+
+*** Usage
+
+   #+BEGIN_EXAMPLE
+   docker run -d -p 8086:8086 \
+   --expose 8090 --expose 8099 \
+   --name influxdb influxdb
+   #+END_EXAMPLE
+
+** Chronograf
+   Chronograf runs an HTTP server on port 8888, which can perform / build
+   queries, as well provide a UI for database administration.
+
+   #+BEGIN_EXAMPLE
+   docker run -p 8888:8888 --name chronograf chronograf
+   #+END_EXAMPLE
+
+** Grafana
+   Grafana runs an HTTP server on port 3000, which provides an
+   interface for graphing and analysing data.
+
+*** Usage
+   #+BEGIN_EXAMPLE
+   docker run -d -p 3000:3000 \
+   --link influxdb:influxdb \
+   --name grafana \
+   grafana/grafana
+   #+END_EXAMPLE
+
+   This particular command uses an old form of docker cross-container networking,
+   which should be updated at some point. Still currently works.
+
+** Cleaning the slate
+   The mosquitto instance is stateless, so it is set to be destroyed
+   whenever it stops. Everything else is named, so can be deleted by
+   #+BEGIN_EXAMPLE
+   docker rm grafana influxdb telegraf
+   #+END_EXAMPLE
+   
+   The telegraf configuration is not lost, as it is loaded from the
+   current directory. Grafana dashboards are not saved, nor is the
+   influx data. These will be lost. 
+
+** Getting the interconnections between containers
+   In the new setup, one can use the machine name specified in
+   ~docker-compose.yml~ as the host name of the service you want:
+   i.e., the DB service can be found at http://influxdb:8086.
+
+   Old setup:
+   #+BEGIN_EXAMPLE
+   docker network inspect bridge
+   #+END_EXAMPLE
+   will give you the IP addresses
+* Future
+** Annotations
+   Annotations allow us to understand the data later, so we want to be
+   able to log what we are currently doing. Currently, a hacked
+   together LabVIEW instrument logs when the evaporative sweep start.
+
+   We probably want to log when different parts of the experiment
+   trigger, so this needs to be generalized.
+
+   Probably write a small grafana plugin to allow people to add more
+   useful annotations.
+** Data Retention Policies
+   At current, we may collect lots of data, so we should define a way
+   of decreasing the data resolution while the experiment isn't
+   running (e.g. after a month, downsample the overnight data)
+
+   For the time being, all data is retained for only 6 weeks.
+
+   This can be set up using the following influx commands
+   #+BEGIN_EXAMPLE
+   CREATE RETENTION POLICY "hi_res" ON "collection" DURATION 6w REPLICATION 1 DEFAULT
+   #+END_EXAMPLE
+
+** Getting the data out
+   One can extract a CSV from a Grafana plot.

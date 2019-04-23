@@ -1,0 +1,67 @@
+version: "3"
+services:
+  mosquitto:
+    image: toke/mosquitto
+    ports:
+      - "9001:9001"
+      - "1883:1883"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    networks:
+      - monnet
+  influxdb:
+    image: influxdb
+    ports:
+      - "8086:8086"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    volumes:
+      - "db-store:/var/lib/influxdb"
+    networks:
+      - monnet
+  chronograf:
+    image: chronograf
+    ports:
+      - "8888:8888"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    networks:
+      - monnet
+  telegraf:
+    image: telegraf
+    volumes:
+      - "./telegraf.conf:/etc/telegraf/telegraf.conf:ro"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    networks:
+      - monnet
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    volumes:
+      - "grafana-store:/var/lib/grafana"
+    networks:
+      - monnet
+networks:
+  monnet:
+volumes:
+  db-store:
+  grafana-store:

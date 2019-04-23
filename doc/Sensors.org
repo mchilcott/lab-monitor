@@ -1,0 +1,89 @@
+* Anything analog
+  Any analog signal from 0-3.3V can be read using the AnalogMonitor
+  class of the firmware, when the signal is connected to the
+  A0 pin of the nodemcu board
+
+* Temperature Sensor ([[https://datasheets.maximintegrated.com/en/ds/DS18B20.pdf][DS18B20]])
+  These can be read using the DS18B20Monitor class. (Connect power to +3.3V
+  supply)
+  
+* Flow Rate Sensor ([[http://www.microelectronicos.com/datasheets/UCTS0058.pdf][HZ21WA]])
+  These are listed as haing a frequency of 
+       f (Hz) = 4.1 (\pm 10%) * Q (flowrate, L/m)
+  This means that we are only really going to have frequencies of less
+  than 100 Hz, so we use the [[http://interface.khm.de/index.php/lab/interfaces-advanced/frequency-measurement-library/][FreqPeriod]] library on an Arduino, with some
+  modifications. The Flow sensor should be connected to the 5 V supply
+  of the arduino, with the pulse output connected to pin D8, which is
+  the input capture 1 pin.
+
+  An arduino programmed with the code in [[./ArduinoCounter]], connected
+  to the ESP via I2C is the suggested method. This will treat any
+  frequency of less than 1 Hz as if it is zero.
+  
+  The scale is as stated, because the output of the arduino code is
+  in mHz, and we want to convert it to Litres/min as above.
+
+  In this case, Wire SDA (A4 on Arduino to D1 on nodeMCU), and SDC (A5
+  Arduino to D2 nodeMCU)
+  
+* Pressure Sensor ([[https://www.aliexpress.com/item/Pressure-Transducer-Sensor-Oil-Fuel-for-Gas-Water-Air/32523806518.html][SKU237545]])
+  Should probably be run off 5V? Rough calibration shows that when
+  run off the 3.3 V supply, the pressure is approximately
+     P (kPa) = V * (2.62/1200) - 155
+  
+  Hence, we can use an DS18B20Monitor with the parameters
+  #+BEGIN_SRC c++
+  scale=(2.62/1200), offset = -155
+  #+END_SRC
+
+  Then the sensor is connected to th 3.3 V supply, and the signal to
+  the A0 pin.
+  
+  As a reference, the specs are given as
+
+** Specifications
+   Working Voltage: 5VDC
+   Output Voltage: 0.5-4.5 VDC
+   Sensor material: Carbon steel alloy
+   Working Current: ≤10 mA
+   Working Pressure Range: 0-1.2 MPa
+   The Biggest Pressure: 2.4 MPa
+   Cable length: 19cm
+   Destroy Pressure: 3.0 MPa
+   Working TEMP. Range: 0-85 degree
+   Storage Temperature Range: 0-100 degree
+   Measuring Error: ±1.5 %FSO
+   Temperature Range Error: ±3.5 %FSO
+   Response Time: ≤2.0 ms
+   Cycle Life: 500,000 pcs
+   Application: non-corrosive gas liquid measurement
+   
+   Features:
+   Easy removal, carbon steel connection more firmly.
+   Stainless steel is durable, sealed waterproof line, imported chips.
+   Wiring: red +, black -, yellow output
+
+* Atmospheric (Temp, Humidity) ([[http://akizukidenshi.com/download/ds/aosong/AM2302.pdf][AM2302/DHT22]], or DHT11, DHT33, DHT44)
+  There is a DHTTemperatureMonitor class for dealing with these. 
+
+  Connect the sensor pins as:
+  | 1 | +3.3 V        |
+  | 2 | D3 on nodeMCU |
+  | 3 | NC            |
+  | 4 | GND           |
+
+  for the default configuration.
+
+  Note that this adds two measurements: base_topic + "/temperature"
+  and base_topic + "/rel_humidity"
+
+* Atmospheric (Temp, Humidity, Pressure) ([[https://ae-bst.resource.bosch.com/media/_tech/media/datasheets/BST-BMP280-DS001-12.pdf][BME280]])
+  Not yet written
+
+
+* 3-axis Magnetic Field (HMC5883L)
+  Note that internally, the gain is set to 5, and the averaging is set
+  to 8 samples, and continuous measurement. Recommended field is +/-
+  4.7 G.
+
+  This class is currently broken
