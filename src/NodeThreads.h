@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <map>
 
 /*
   This particular library is for having multiple sensor threads for my
@@ -122,7 +123,7 @@ class DCThread : public Thread {
       mClientName = name;
     };
   
-  void beginMQTT (
+    virtual void beginMQTT (
             const char *MQTTHost,
             const int MQTTPort
            )
@@ -197,20 +198,24 @@ class CallbackBroker {
         
 };
 
+void messageReceived(String &topic, String &payload) {
+  Serial.println("incoming: " + topic + " - " + payload);
+}
 
 class ControlThread : public DCThread {
  protected:
-  
+  bool mLastConnectionState;
+
  public:
   ControlThread(
            ThreadManager &mgr,
            const char *topic,
            unsigned int period = 0
            )
-   : DCThread(mgr, topic, period)
+   : DCThread(mgr, topic, period), mLastConnectionState(false)
   {};
   
-  void beginMQTT (
+  virtual void beginMQTT (
             const char *MQTTHost,
             const int MQTTPort
            )
@@ -218,11 +223,25 @@ class ControlThread : public DCThread {
         mClient.begin(MQTTHost, MQTTPort, mWiFi);
         CallbackBroker::register_cb(&mClient, [this](String &a, String &b){this->onMessage(a,b);});
         mClient.onMessageAdvanced(&CallbackBroker::callback_target);
+        //mClient.onMessage(messageReceived);
     }
 
-  virtual void poll () {}
+  virtual void poll () {};
   
   virtual void loop() {
+    // Handle disconnects/reconnects
+    bool connected = mClient.connected();
+
+    if(connected != mLastConnectionState)
+    {
+      // There has been a change of state
+      if(connected) onConnect();
+      else onDisconnect();
+
+      mLastConnectionState = connected;
+    }
+
+    // Usual thread loop
     DCThread::loop();
   }
 
@@ -237,6 +256,49 @@ class ControlThread : public DCThread {
 };
 
 
+class DigitalOutput : public ControlThread {
+  public:
+    unsigned int mPin;
+    bool mActiveHigh;
+
+    DigitalOutput(
+          ThreadManager &mgr,
+          const char *topic = "control/default/digital",
+          unsigned int default_state = LOW,
+          bool active_high = true,
+          bool open_drain = false,
+          unsigned int pin = 16, // NodeMCU D0,
+          unsigned int period = 0
+    ): ControlThread(mgr, topic, period), mPin(pin), mActiveHigh(active_high)
+    {
+      pinMode(mPin, open_drain ? OUTPUT_OPEN_DRAIN : OUTPUT);
+      digitalWrite(mPin, default_state);
+    }
+
+    virtual void onConnect() 
+    {
+      mClient.subscribe(mTopic);
+    }
+
+    virtual void onMessage(String &topic, String &payload)
+    {
+      if (topic == mTopic)
+      {
+        if (payload.equalsIgnoreCase("ON") || payload.equalsIgnoreCase("TRUE") || payload.equalsIgnoreCase("1"))
+          digitalWrite(mPin, mActiveHigh ? HIGH : LOW);
+        else if (payload.equalsIgnoreCase("OFF") || payload.equalsIgnoreCase("FALSE") || payload.equalsIgnoreCase("0"))
+          digitalWrite(mPin, mActiveHigh ? LOW : HIGH);
+        else if (payload.equalsIgnoreCase("HIGH"))
+          digitalWrite(mPin, HIGH);
+        else if (payload.equalsIgnoreCase("LOW"))
+          digitalWrite(mPin, LOW);
+        else
+          Serial.println("DigitalOutput: Got invalid command.");
+        
+      }
+    }
+};
+
 
 class HomieThread : public ControlThread {
     private:
@@ -249,7 +311,7 @@ class HomieThread : public ControlThread {
            ThreadManager &mgr,
            String node_name,
            const char *basetopic = "status/",
-           unsigned int period = 30
+           unsigned int period = 30000
     ) : mNodeName(node_name), ControlThread(mgr, basetopic, period)
     {
         mTopicBase = String(basetopic);

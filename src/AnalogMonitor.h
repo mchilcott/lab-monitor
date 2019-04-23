@@ -417,7 +417,6 @@ class DS18B20MultiMonitor : public DCThread {
 
 class AnalogMuxMonitor : public DCThread {
   private:
-    boolean mInit; // Make sure init() runs on the first loop() call
     std::vector<unsigned int> mPins;
     std::vector<std::pair<int, const char *> > mIndexToTopic;
 
@@ -435,7 +434,7 @@ class AnalogMuxMonitor : public DCThread {
                     unsigned int period = 2000,
                     std::vector<unsigned int> pins = {16, 5, 4} // GPIO pin numbers for mux pins A,B,c,...
                   )
-      : DCThread(mgr, index_to_topic[0].second, period), mInit(false), mPins(pins), mIndexToTopic(index_to_topic),
+      : DCThread(mgr, index_to_topic[0].second, period), mPins(pins), mIndexToTopic(index_to_topic),
       mScale(scales), mOffset(offsets), mUnits(units)
     {
       for (auto it = mPins.begin(); it != mPins.end(); ++it)
@@ -506,12 +505,10 @@ class DSM501A_Monitor : public DCThread
   public:
     DSM501A_Monitor(
                     ThreadManager &mgr,
-                    const char *topic,
-                    std::vector<double> scales,
-                    std::vector<double> offsets,
+                    const char *topic = "sensor/default/atmosphere",
                     unsigned int period = 30000,
-                    unsigned int pin_1u = 4,   // Vout2 (2.5 um particles)
-                    unsigned int pin_2u5 = 5  // Vout1 (1 um particles)
+                    unsigned int pin_1u = 13,   // Node D7 -> Vout2 (1 um particles)
+                    unsigned int pin_2u5 = 15   // Node D8 -> Vout1 (2.5 um particles)
                   )
       : DCThread(mgr, topic, period), mPin_1u(pin_1u), mPin_2u5(pin_2u5), mLowMillis_1u(0), mLowMillis_2u5(0)
     {
@@ -576,6 +573,7 @@ class DSM501A_Monitor : public DCThread
 
       mClient.publish(topic + "/2u5_particles", output);
     }
+    
 };
 
 
@@ -601,12 +599,12 @@ class HMC5883Monitor : public DCThread {
                     const char * topic = "sensor/default/mag_field",
                     unsigned int period = 2000,
                     unsigned int i2c_sda = 4, // NodeMCU D2.
-                    unsigned int i2c_sdc = 5,  // NodeMCU D1.
+                    unsigned int i2c_sdc = 5  // NodeMCU D1.
                   )
       : DCThread(mgr, topic, period), mInit(false), mTopic(topic), mMag(), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
     {
         Wire.begin(mI2C_sda, mI2C_sdc);
-        if(!mag.begin())
+        if(!mMag .begin())
             {
                 /* There was a problem detecting the HMC5883 ... check your connections */
                 Serial.println("HMC5883 not detected ... Check your wiring!");
@@ -615,10 +613,12 @@ class HMC5883Monitor : public DCThread {
 
     virtual void poll()
     {
+        Serial.println("Mag measure");
         Wire.begin(mI2C_sda, mI2C_sdc);
         sensors_event_t event; 
         mMag.getEvent(&event);
-        
+        return;
+
         float x = event.magnetic.x;
         float y = event.magnetic.y;
         float z = event.magnetic.z;
@@ -672,9 +672,9 @@ class MAX31855Monitor : public DCThread {
                     ThreadManager &mgr,
                     const char * topic = "sensor/default/temp",
                     unsigned int period = 2000,
-                    unsigned int pin_clk = 3, 
-                    unsigned int pin_cs = 4, 
-                    unsigned int pin_miso = 5
+                    unsigned int pin_clk = 0,  // NodeMCU pin D3
+                    unsigned int pin_cs = 4,   // NodeMCU pin D2
+                    unsigned int pin_miso = 5  // NodeMCU pin D1
                   )
       : DCThread(mgr, topic, period), mTopic(topic),  mTherm(pin_clk, pin_cs, pin_miso)
     {
@@ -757,16 +757,16 @@ class MCP9600Monitor : public DCThread {
 
     virtual void poll()
     {
-    
-        double t = mTherm.readThermocouple();
+        mTherm.readADC(); // This seems to help get everything consistent
         double amb = mTherm.readAmbient();
+        double t = mTherm.readThermocouple();
         
         // Cheap JSON
         String output = "{\"mean\": ";
         output += String(t, 3);
         output += ", \"units\": \"deg C\"}";
         String out_topic = topic();
-        out_topic += "/temperature";
+        out_topic += "/probe_temperature";
         mClient.publish(out_topic, output);
 
         output = "{\"mean\": ";
@@ -781,7 +781,10 @@ class MCP9600Monitor : public DCThread {
     virtual void loop()
     { 
       if(!mInit)
-        init();
+        {
+          init();
+          mInit = true;
+        }
 
       // Manage the polling, connection, etc
       DCThread::loop();
