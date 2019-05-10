@@ -18,7 +18,7 @@
 
 // For the threading and data collection
 
-char MQTTServer[64] = "hugin.px.otago.ac.nz";
+char MQTTServer[64] = "192.168.4.2";
 char MQTTPort[8] = "1883";
 ThreadManager tm;
 std::map<MQTTClient *, std::function<void(String &, String &)>> CallbackBroker::msCallbacks;
@@ -54,17 +54,18 @@ std::vector<DCThread *> collectors = {
   //       std::make_pair(5, "sensor/cooling/mosfet/main5")
   //     }
   //   )
-
+  new MCP9600Monitor(tm, "sensor/default/temperature"),
+  new DigitalMonitor(tm, "state/digital", 10000, 2, true)
   //new DSM501A_Monitor(tm)
   
   // Standard 3V3TTL type signal on NodeMCU D0
   // new DigitalOutput(tm, "control/default/digital"),
 
   //Driving a 5V relay board (active low, with open drain) from NodeMCU pin D1 - D4
-  new DigitalOutput(tm, "control/default/digital1", HIGH, false, true, 2),
-  new DigitalOutput(tm, "control/default/digital2", HIGH, false, true, 0),
-  new DigitalOutput(tm, "control/default/digital3", HIGH, false, true, 4),
-  new DigitalOutput(tm, "control/default/digital4", HIGH, false, true, 5)
+  //new DigitalOutput(tm, "control/default/digital1", HIGH, false, true, 2),
+  //new DigitalOutput(tm, "control/default/digital2", HIGH, false, true, 0),
+  //new DigitalOutput(tm, "control/default/digital3", HIGH, false, true, 4),
+  //new DigitalOutput(tm, "control/default/digital4", HIGH, false, true, 5)
 
 
   // Multiple analog inputs with a Mux

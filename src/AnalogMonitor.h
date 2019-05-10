@@ -573,7 +573,7 @@ class DSM501A_Monitor : public DCThread
 
       mClient.publish(topic + "/2u5_particles", output);
     }
-    
+
 };
 
 
@@ -753,6 +753,7 @@ class MCP9600Monitor : public DCThread {
         mTherm.setThermocoupleType(mType);
         mTherm.setFilterCoefficient(3);
         mTherm.enable(true);
+        Serial.println("Started Sensor");
     }
 
     virtual void poll()
@@ -791,3 +792,49 @@ class MCP9600Monitor : public DCThread {
     }
 };
 
+// Include this declaration because of difficulties with the standard library. - The header file doesn't acknowledge that
+// the implementation uses a std::function rather than a function pointer, so prevents general usage.
+void attachInterrupt(uint8_t pin, std::function<void(void)> callback, int mode);
+
+class DigitalMonitor : public DCThread 
+{
+  private:
+    unsigned int mPin;
+
+  public:
+    DigitalMonitor(
+                    ThreadManager &mgr,
+                    const char * topic = "state/digital",
+                    unsigned int period = 10000,
+                    unsigned int pin = 4,  // NodeMCU D2 - for no good reason
+                    bool pullup = false
+                  )
+      : DCThread(mgr, topic, period), mPin(pin)
+    {
+      pinMode(mPin, pullup ? INPUT_PULLUP : INPUT);
+
+      attachInterrupt(mPin, [&](){
+        this->poll();
+      }, RISING);
+
+      attachInterrupt(mPin, [&](){
+        this->poll();
+      }, FALLING);
+      // There is some funny business to sort out with the above, and the need for debouncing
+      // (Atleast when testing with a switch)
+    }
+
+    void poll()
+    {
+      int state = digitalRead(mPin);
+
+      String s_state ((state == HIGH)? "HIGH" : "LOW");
+
+      String output = "{\"state\": \"";
+      output += s_state;
+      output += "\"}";
+      mClient.publish(topic(), output);
+
+    }
+
+};
