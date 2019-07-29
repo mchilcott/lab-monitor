@@ -60,8 +60,22 @@ services:
       - "grafana-store:/var/lib/grafana"
     networks:
       - monnet
+  nodered:
+    image: nodered/node-red-docker
+    ports:
+      - "1880:1880"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    volumes:
+      - "nodered-store:/data"
+    networks:
+      - monnet
 networks:
   monnet:
 volumes:
   db-store:
   grafana-store:
+  nodered-store:

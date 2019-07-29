@@ -2,7 +2,13 @@
 
 #include "NodeThreads.h"
 
-
+/**
+ * Uses the onboard ADC to make measurements.
+ * 
+ * This class can be reconfigured to take a variety of measurements
+ * 
+ * Note that this class assumes the range on the ADC to be 3.3 V as per the NodeMCU boards.
+ */
 class AnalogMonitor : public DCThread
 {
  private:
@@ -14,33 +20,39 @@ class AnalogMonitor : public DCThread
   
  public:
   /**
-     Construct a thread to monitor the ADC, and send data to the given
-     mqtt channel. Parameters are provided to make a linear mapping of
-     the input data:
-     
-     output = (input [V]) * scale + offset.
+    Construct a thread to monitor the ADC, and send data to the given
+    mqtt channel. Parameters are provided to make a linear mapping of
+    the input data:
+    
+    \f$
+    \text{output} = (\text{input} [V]) \times \text{scale} + \text{offset}.
+    \f$
 
-     The reported units of output are also configurable.
-     
-     \param name Name of the measurement as sent via MQTT
-     \param period Period of measurement (in milliseconds)
+    The reported units of output are also configurable.
 
-     \param scale A scale factor between input voltage and output data
-     \param offset The zero offset of the data
+    \param mgr Thread Manager to run this thread
+    \param topic MQTT Topic to publish these measurements to
+    \param period Period of measurement (in milliseconds)
+    \param scale A scale factor between input voltage and output data
+    \param offset The zero offset of the data
+    \param units The reported units of this measurement
    */
   AnalogMonitor(
-                  ThreadManager & mgr,
                   const char * topic = "sensor/default/analongmon",
                   unsigned int period = 2000,
                   double scale = 1,
                   double offset = 0,
                   const char * units = "V"
                 )
-    : DCThread(mgr, topic, period), mScale(scale), mOffset(offset), mUnits(units)
+    : DCThread(topic, period), mScale(scale), mOffset(offset), mUnits(units)
   {}
 
+  /**
+   * Read the ADC and publish the result
+   */
   virtual void poll()
   {
+
     // Note the magic number to convert from number to volts
     double measurement = analogRead(0) * (3.3/1024.0) * mScale + mOffset;
     
@@ -61,30 +73,37 @@ class AnalogMonitor : public DCThread
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
+/**
+ * Monitor measurements from a single [DS18B20](https://datasheets.maximintegrated.com/en/ds/DS18B20.pdf) digital temperature sensor.
+ */
 class DS18B20Monitor : public DCThread {
   private:
-    boolean mInit; // Make sure init() runs on the first loop() call
-    unsigned int mPin; // Pin the OneWire signal is connected to
+    boolean mInit; //!< Make sure init() runs on the first loop() call
+    unsigned int mPin; //!< Pin the OneWire signal is connected to
 
     OneWire mOW;
     DallasTemperature mSensor;
-    unsigned int mResolution; // Desired resolution of conversion
-    unsigned int mConversionDelay; // in ms
+    unsigned int mResolution; //!< Desired resolution of conversion
+    unsigned int mConversionDelay; //!< Calculated conversion delay in ms
     unsigned long mLastRequestTime;
     bool mConverting;
   public:
     DS18B20Monitor(
-                    ThreadManager &mgr,
                     const char * topic = "sensor/default/temperature",
                     unsigned int period = 2000,
                     unsigned int pin = 2, // NodeMCU D4. Remeber: This is the GPIO pin number for the ESP module, not the NodeMCU label
                     unsigned int resolution = 12
                   )
-      : DCThread(mgr, topic, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
-      mConversionDelay(750 / (1 << (12 - resolution))), // This conversion formula is from the DallasTemperature WaitForConversion example
+      : DCThread(topic, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
+      mConversionDelay(750 / (1 << (12 - resolution)) + 20), // This conversion formula is from the DallasTemperature WaitForConversion example (With an extra 20 ms for safety)
       mLastRequestTime(millis()), mConverting(false)
     {} 
 
+    /**
+     * Initialise the sensor connection, and sanity check parameters
+     * 
+     * This function is run automatically the first time loop() is called.
+     */
     void init () 
     {
       // Prevent silly things.
@@ -104,6 +123,10 @@ class DS18B20Monitor : public DCThread {
       mSensor.setWaitForConversion(false);
     }
 
+    /**
+     * Starts a measurement. The publication of the data is performed later in the 
+     * loop() function, because we must also wait for the conversion to finish.
+     */
     virtual void poll()
     {
       mConverting = true;
@@ -111,6 +134,9 @@ class DS18B20Monitor : public DCThread {
       mLastRequestTime = millis();
     }
 
+    /**
+     * Thread's main loop. Publishes measurement after conversion is finished.
+     */
     virtual void loop()
     { 
       if(!mInit)
@@ -138,7 +164,13 @@ class DS18B20Monitor : public DCThread {
 
 
 #include <Wire.h>
-
+/**
+ * Reads and publishes a 32 bit word from an I2C device.
+ * 
+ * This is partially an example, and also used for communication with an Arduino Nano programmed as a frequency counter.
+ * 
+ * This class could so with some tidying up.
+ */
 class I2CWordMonitor : public DCThread
 {
  private:
@@ -153,22 +185,29 @@ class I2CWordMonitor : public DCThread
   
  public:
   /**
-     Construct a thread to poll an I2C device, and send data to the given
-     mqtt channel. Parameters are provided to make a linear mapping of
-     the input data:
-     
-     output = (input [V]) * scale + offset.
+    Construct a thread to poll an I2C device, and send data to the given
+    mqtt channel. Parameters are provided to make a linear mapping of
+    the input data:
+    
+    \f$
+    \text{output} = \left(\frac{\text{input}}{1000}\right) \times \text{scale} + \text{offset}
+    \f$
 
-     The reported units of output are also configurable.
-     
-     \param name Name of the measurement as sent via MQTT
-     \param period Period of measurement (in milliseconds)
+    where input is the 32 bit unsigned integer read from the I2C bus.
 
-     \param scale A scale factor between input voltage and output data
-     \param offset The zero offset of the data
+    The reported units of output are also configurable.
+
+    \param topic MQTT topic measurement is published to
+    \param period Period of measurement (in milliseconds)
+
+    \param scale A scale factor between input voltage and output data
+    \param offset The zero offset of the data
+
+    \param i2c_addr Address of the remote I2C device 
+    \param i2c_sda Pin used for the SDA (data) line of the I2C bus
+    \param i2c_sdc Pin used for the SDC (clock) line of the I2C bus
    */
   I2CWordMonitor(
-                  ThreadManager & mgr,
                   const char * topic = "sensor/default/I2Cword",
                   unsigned int period = 2000,
                   double scale = 1,
@@ -178,9 +217,12 @@ class I2CWordMonitor : public DCThread
                   unsigned int i2c_sda = 4, // NodeMCU D2. Connect to A4 on Arduino nano
                   unsigned int i2c_sdc = 5  // NodeMCU D1. Connect to A5 on Arduino nano
                 )
-    : DCThread(mgr, topic, period), mScale(scale), mOffset(offset), mUnits(units), mAddr(i2c_addr), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
+    : DCThread(topic, period), mScale(scale), mOffset(offset), mUnits(units), mAddr(i2c_addr), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
   {}
 
+  /**
+   * Reads a 32 bit number from the I2C line.
+   */
   uint32_t get_data()
   {
     Wire.begin(mI2C_sda, mI2C_sdc);
@@ -198,9 +240,12 @@ class I2CWordMonitor : public DCThread
       return output;
   }
 
+  /**
+   * Publish data from the I2C request
+   */
   virtual void poll()
   {
-    // Note the magic number to convert from number to volts
+    //TODO: Fix magic number
     double measurement = (((double) get_data()) / 1000.0) * mScale + mOffset;
     
     // Cheap JSON
@@ -219,7 +264,9 @@ class I2CWordMonitor : public DCThread
 
 #include <DHT.h>
 #include <DHT_U.h>
-
+/**
+ * Monitor a [DHT22 / AM2302 Atmospheric Temperature/Humidity sensor](https://cdn-shop.adafruit.com/datasheets/DHT22.pdf).
+ */
 class DHTTemperatureMonitor : public DCThread {
   private:
     boolean mInit; // Make sure init() runs on the first loop() call
@@ -232,13 +279,12 @@ class DHTTemperatureMonitor : public DCThread {
     bool mConverting;
   public:
     DHTTemperatureMonitor(
-                    ThreadManager &mgr,
                     const char * topic = "sensor/default/atmosphere",
                     unsigned int period = 2000,
                     unsigned int pin = 0, // NodeMCU D3
                     unsigned int dht_type = DHT22
                   )
-      : DCThread(mgr, topic, period), mInit(false), mPin(pin), mTopic(topic), mDHT(pin, dht_type), mLastRequestTime(millis()),
+      : DCThread(topic, period), mInit(false), mPin(pin), mTopic(topic), mDHT(pin, dht_type), mLastRequestTime(millis()),
       mConverting(false)
     {
       sensor_t sensor;
@@ -308,33 +354,42 @@ class DHTTemperatureMonitor : public DCThread {
     }
 };
 
-
+/**
+ * Monitor measurements from multiple [DS18B20](https://datasheets.maximintegrated.com/en/ds/DS18B20.pdf) digital temperature sensors.
+ * 
+ * These sensors will be connected to the same data pin. When starting up, this class will print some details about the sensors out the serial port.
+ * This may be useful for identifying which sensor is which, but ultimately, one can work out which sensor is which by watching the temperature change
+ * caused by holding one of the sensors.
+ */
 class DS18B20MultiMonitor : public DCThread {
   private:
-    boolean mInit; // Make sure init() runs on the first loop() call
-    unsigned int mPin; // Pin the OneWire signal is connected to
+    boolean mInit; //!< Make sure init() runs on the first loop() call
+    unsigned int mPin; //!< Pin the OneWire signal is connected to
 
     OneWire mOW;
     DallasTemperature mSensor;
-    unsigned int mResolution; // Desired resolution of conversion
-    unsigned int mConversionDelay; // in ms
+    unsigned int mResolution; //!< Desired resolution of conversion
+    unsigned int mConversionDelay; //!< in ms
     unsigned long mLastRequestTime;
     bool mConverting;
-    std::vector<std::pair<int, const char *> > mIndexToTopic;
+    std::vector<std::pair<int, const char *> > mIndexToTopic; //!< Listing between sensor index and MQTT topic of measurement
 
   public:
     DS18B20MultiMonitor(
-                    ThreadManager &mgr,
                     std::vector<std::pair<int, const char *> > index_to_topic,
                     unsigned int period = 2000,
                     unsigned int pin = 2, // NodeMCU D4. Remeber: This is the GPIO pin number for the ESP module, not the NodeMCU label
                     unsigned int resolution = 12
                   )
-      : DCThread(mgr, index_to_topic[0].second, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
-      mConversionDelay(750 / (1 << (12 - resolution))), // This conversion formula is from the DallasTemperature WaitForConversion example
+      : DCThread(index_to_topic[0].second, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
+      mConversionDelay(750 / (1 << (12 - resolution)) + 20), // This conversion formula is from the DallasTemperature WaitForConversion example (with an extra 20 ms for safety)
       mLastRequestTime(millis()), mConverting(false), mIndexToTopic(index_to_topic)
     {} 
 
+
+    /**
+     * Start up sensors. This function prints out some details about the sensors via serial, which may help in identifying sensors.
+     */
     void init () 
     {
       // Prevent silly things.
@@ -379,6 +434,9 @@ class DS18B20MultiMonitor : public DCThread {
       mSensor.setWaitForConversion(false);
     }
 
+    /**
+     * Start the sensors converting
+     */
     virtual void poll()
     {
       mConverting = true;
@@ -386,6 +444,9 @@ class DS18B20MultiMonitor : public DCThread {
       mLastRequestTime = millis();
     }
 
+    /**
+     * Publish measurements
+     */
     virtual void loop()
     { 
       if(!mInit)
@@ -415,6 +476,11 @@ class DS18B20MultiMonitor : public DCThread {
     }
 };
 
+/**
+ * Using a multiplexer (MUX) to monitor multiple inputs from the onboard ADC.
+ * 
+ * This class can be considered an example, but is considered deprecated!
+ */
 class AnalogMuxMonitor : public DCThread {
   private:
     std::vector<unsigned int> mPins;
@@ -426,7 +492,6 @@ class AnalogMuxMonitor : public DCThread {
 
   public:
     AnalogMuxMonitor(
-                    ThreadManager &mgr,
                     std::vector<std::pair<int, const char *> > index_to_topic,
                     std::vector<double> scales,
                     std::vector<double> offsets,
@@ -434,7 +499,7 @@ class AnalogMuxMonitor : public DCThread {
                     unsigned int period = 2000,
                     std::vector<unsigned int> pins = {16, 5, 4} // GPIO pin numbers for mux pins A,B,c,...
                   )
-      : DCThread(mgr, index_to_topic[0].second, period), mPins(pins), mIndexToTopic(index_to_topic),
+      : DCThread(index_to_topic[0].second, period), mPins(pins), mIndexToTopic(index_to_topic),
       mScale(scales), mOffset(offsets), mUnits(units)
     {
       for (auto it = mPins.begin(); it != mPins.end(); ++it)
@@ -481,7 +546,11 @@ class AnalogMuxMonitor : public DCThread {
     }
 };
 
-
+/**
+ * Monitor a DSM501A particle sensor to detect air quality.
+ * 
+ * This class is under development, and not currently functional.
+ */
 class DSM501A_Monitor : public DCThread
 {
   // Caution: This class is currently a singleton!! Only one instance should be instantiated.
@@ -504,13 +573,12 @@ class DSM501A_Monitor : public DCThread
 
   public:
     DSM501A_Monitor(
-                    ThreadManager &mgr,
                     const char *topic = "sensor/default/atmosphere",
                     unsigned int period = 30000,
                     unsigned int pin_1u = 13,   // Node D7 -> Vout2 (1 um particles)
                     unsigned int pin_2u5 = 15   // Node D8 -> Vout1 (2.5 um particles)
                   )
-      : DCThread(mgr, topic, period), mPin_1u(pin_1u), mPin_2u5(pin_2u5), mLowMillis_1u(0), mLowMillis_2u5(0)
+      : DCThread(topic, period), mPin_1u(pin_1u), mPin_2u5(pin_2u5), mLowMillis_1u(0), mLowMillis_2u5(0)
     {
       pinMode(mPin_1u, INPUT);
       pinMode(mPin_2u5, INPUT);
@@ -580,13 +648,11 @@ class DSM501A_Monitor : public DCThread
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
-
+/**
+ * Monitor the HMC5883 3 axis magnetic field sensor.
+ */
 class HMC5883Monitor : public DCThread {
-    /**
-     * Monitor the HMC5883 3 axis magnetic field sensor.
-     * 
-     * This doesn't have configuration for pins, assuming the standard I2C lines?
-     */
+
   private:
     boolean mInit; // Make sure init() runs on the first loop() call
     const char * mTopic;
@@ -595,16 +661,15 @@ class HMC5883Monitor : public DCThread {
     Adafruit_HMC5883_Unified mMag;
   public:
     HMC5883Monitor(
-                    ThreadManager &mgr,
                     const char * topic = "sensor/default/mag_field",
                     unsigned int period = 2000,
                     unsigned int i2c_sda = 4, // NodeMCU D2.
                     unsigned int i2c_sdc = 5  // NodeMCU D1.
                   )
-      : DCThread(mgr, topic, period), mInit(false), mTopic(topic), mMag(), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
+      : DCThread(topic, period), mInit(false), mTopic(topic), mMag(), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
     {
         Wire.begin(mI2C_sda, mI2C_sdc);
-        if(!mMag .begin())
+        if(!mMag.begin())
             {
                 /* There was a problem detecting the HMC5883 ... check your connections */
                 Serial.println("HMC5883 not detected ... Check your wiring!");
@@ -655,13 +720,13 @@ class HMC5883Monitor : public DCThread {
 
 #include <SPI.h>
 #include <Adafruit_MAX31855.h>
-
+/**
+ * Monitor a Thermocouple with the MAX31855 thermocouple driver.
+ * 
+ * Only needs the MISO pin (Not MOSI), because data is only read, never written
+ */
 class MAX31855Monitor : public DCThread {
-    /**
-     * Monitor a Thermocouple with the MAX31855 thermocouple driver.
-     * 
-     * Only needs the MISO pin (Not MOSI), because data is only read, never written
-     */
+
   private:
     unsigned int mPin; // Pin the OneWire signal is connected to
     const char * mTopic;
@@ -669,14 +734,13 @@ class MAX31855Monitor : public DCThread {
     Adafruit_MAX31855 mTherm;
   public:
     MAX31855Monitor(
-                    ThreadManager &mgr,
                     const char * topic = "sensor/default/temp",
                     unsigned int period = 2000,
                     unsigned int pin_clk = 0,  // NodeMCU pin D3
                     unsigned int pin_cs = 4,   // NodeMCU pin D2
                     unsigned int pin_miso = 5  // NodeMCU pin D1
                   )
-      : DCThread(mgr, topic, period), mTopic(topic),  mTherm(pin_clk, pin_cs, pin_miso)
+      : DCThread(topic, period), mTopic(topic),  mTherm(pin_clk, pin_cs, pin_miso)
     {
     }
 
@@ -713,11 +777,11 @@ class MAX31855Monitor : public DCThread {
 #include <Adafruit_I2CRegister.h>
 #include <Adafruit_MCP9600.h>
 
+/**
+ * Monitor a Thermocouple with the MCP9600 thermocouple driver.
+ */
 class MCP9600Monitor : public DCThread {
-    /**
-     * Monitor a Thermocouple with the MCP9600 thermocouple driver.
-     * 
-     */
+
   private:
     bool mInit;
     unsigned int mPin; // Pin the OneWire signal is connected to
@@ -731,7 +795,6 @@ class MCP9600Monitor : public DCThread {
     
   public:
     MCP9600Monitor(
-                    ThreadManager &mgr,
                     const char * topic = "sensor/default/temp",
                     unsigned int period = 2000,
                     MCP9600_ThemocoupleType type = MCP9600_TYPE_K,
@@ -739,7 +802,7 @@ class MCP9600Monitor : public DCThread {
                     unsigned int i2c_sdc = 5,  // NodeMCU D1.
                     unsigned int i2c_addr = MCP9600_I2CADDR_DEFAULT //Address of the remote device
                   )
-      : DCThread(mgr, topic, period), mTopic(topic), mInit(false), mWire(), mType(type), mI2C_addr(i2c_addr),  mTherm()
+      : DCThread(topic, period), mTopic(topic), mInit(false), mWire(), mType(type), mI2C_addr(i2c_addr),  mTherm()
     {
         mWire.begin(i2c_sda, i2c_sdc);
     }
@@ -792,10 +855,17 @@ class MCP9600Monitor : public DCThread {
     }
 };
 
-// Include this declaration because of difficulties with the standard library. - The header file doesn't acknowledge that
-// the implementation uses a std::function rather than a function pointer, so prevents general usage.
+/**
+ * Redeclare attachInterrupt from the ESP8266 framework. The header file for the framework doesn't acknowledge that
+ * the implementation uses a std::function rather than a function pointer, so prevents us from using the more powerful std::function
+ */
 void attachInterrupt(uint8_t pin, std::function<void(void)> callback, int mode);
 
+/**
+ * Monitor a digital signal.
+ * 
+ * This class has some strange behaviours due to the callbacks not behaving as expected (or perhaps lack of debouncing).
+ */
 class DigitalMonitor : public DCThread 
 {
   private:
@@ -803,13 +873,12 @@ class DigitalMonitor : public DCThread
 
   public:
     DigitalMonitor(
-                    ThreadManager &mgr,
                     const char * topic = "state/digital",
                     unsigned int period = 10000,
-                    unsigned int pin = 4,  // NodeMCU D2 - for no good reason
+                    unsigned int pin = 4,  //!< pin to be monitored
                     bool pullup = false
                   )
-      : DCThread(mgr, topic, period), mPin(pin)
+      : DCThread(topic, period), mPin(pin)
     {
       pinMode(mPin, pullup ? INPUT_PULLUP : INPUT);
 
@@ -824,6 +893,7 @@ class DigitalMonitor : public DCThread
       // (Atleast when testing with a switch)
     }
 
+    //! Produce regular updates, even when not changing.
     void poll()
     {
       int state = digitalRead(mPin);
@@ -836,5 +906,115 @@ class DigitalMonitor : public DCThread
       mClient.publish(topic(), output);
 
     }
+
+};
+
+#include <SoftwareSerial.h>
+/**
+ * Monitor a serial device. This class provides a way of sending and receiving serial commands, making it capable of
+ * talking to TTL serial devices, or with the help of adaptors, RS232 and GPIB devices. GPIB requires a bit more effort,
+ * and is accomplished with an Arduino, using, for example [AR488](https://github.com/Twilight-Logic/AR488).
+ * 
+ * Note that as we are using a software serial port, there can be issues with timing when running the port at high speed.
+ * For this reason, if using the GPIB software, it works much better if you modify the arduino firmware to talk serial at a
+ * lower rate than 115200 baud.
+ * 
+ * SerialMonitor is a bit of a pain to use and needs more documentation.
+ */
+class SerialMonitor : public DCThread
+{
+  private:
+    std::vector<std::function<void(SoftwareSerial &, MQTTClient &, SerialMonitor &)>> mRequests;
+    std::function<void(SoftwareSerial &)> mInitFunc;
+    SoftwareSerial mConnection;
+    String mInput;
+    char mWaitingFor;
+    unsigned int mRequestStep;
+    unsigned long mBaud;
+    bool mInit;
+
+  public:
+    SerialMonitor(
+                    std::function<void(SoftwareSerial &)> initFunc,
+                    std::vector<std::function<void(SoftwareSerial &, MQTTClient &, SerialMonitor &)>> request_funcs,
+                    const char *name,
+                    unsigned int period = 3000,
+                    unsigned int rx_pin = 14, // D5
+                    unsigned int tx_pin = 12, // D6
+                    unsigned long baud = 19200
+                  )
+      : DCThread(name, period), mRequests(request_funcs),
+      mConnection(rx_pin, tx_pin, false, 256),
+      mInput(), mWaitingFor('\0'), mRequestStep(0),
+      mInitFunc(initFunc),
+      mBaud(baud), mInit(false)
+      {}
+
+  void init(){
+        mConnection.begin(mBaud);
+        if (mBaud >= 115200)
+          mConnection.enableIntTx(false);
+        mInitFunc(mConnection);
+  }
+
+  void waitFor (char c){
+    mWaitingFor = c;
+  }
+
+  String read() {
+    return mInput;
+  }
+
+  void handleRequest()
+    {
+      Serial.println("HANDLING A REQUEST");
+      Serial.flush();
+      mRequests[mRequestStep](mConnection, mClient, *this);
+      mRequestStep ++;
+      Serial.println("DONE REQUEST STEP");
+
+      if (mRequestStep == mRequests.size())
+        {
+          mRequestStep = 0;
+          mWaitingFor = '\0';
+        }
+
+
+      mInput = String();
+    }
+
+  virtual void poll()
+    {
+      mRequestStep = 0;
+      handleRequest();
+    }
+    
+  virtual void loop()
+    {
+      Serial.flush();
+      if(!mInit)
+        {
+          init();
+          mInit = true;
+        }
+      // Do polling
+
+      //Serial.println("Polling");
+
+      // Read from serial
+      while(mConnection.available() > 0)
+      {  
+        
+        char c = mConnection.read();
+        Serial.print("Got a char: ");
+        Serial.println(c);
+        mInput += String(c);
+
+        if (c == mWaitingFor)
+          handleRequest();
+      }
+      DCThread::loop();
+    }
+
 
 };

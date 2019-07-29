@@ -20,7 +20,7 @@
      an init(), which is the constructor, and a loop() method, also
      called this. The loop method should return quickly: i.e. delay()
      statements are strictly forbidden. There [will be] a helper class
-     to do things like that.
+     to do things like that?
 
    - The loop() method of a thread returns objects which allow the
      ThreadManager to control the running of the thread.
@@ -30,28 +30,56 @@
  */
 
 
-/* Partial Declaration of the Thread Class */
+/* Forward Declaration to make everything work */
 class ThreadManager;
 
+/**
+ * Prototype Thread Class
+ * 
+ * A thread is a virtual object which is based around the idea of a
+ * single-purpose arduino sketch. It initialises in the constructor,
+ * and then has a loop method which is called repeatedly.
+ * 
+ * This class contains a pure virtual function, and cannot be instantiated.
+ */
 class Thread {
- protected:
-  ThreadManager &mManager;
  public:
-  Thread(ThreadManager &mgr);
+  ThreadManager *mParent; //!< The Manager looking after this thread
+
+  /**
+   * Default Constructor
+   */
+  Thread() : mParent(nullptr)
+    {}
+
+  /**
+   * The thread's main loop. Each call should run one iteration.
+   * 
+   * The call to this function should not include calls to delay() as 
+   * this function should aim to complete as quickly as possible.
+   */
   virtual void loop() = 0;
 };
 
 /**
-   The thread manager is responsible for giving a pool of threads CPU
-   time. This manager is non-preemptive, and requires the threads to
-   co-operate and not hang.
+ * Manage a list of threads. Each thread follows the same idea as the Arduino framework,
+ * with some initial setup (in the constructor of the thread), and a loop() function, which is called regularly.
+ * 
+ * This manager performs Cooperative multitasking -- each thread will be given however much time it takes to run loop(), without being interrupted.
+ * For a functional, responsive system, threads must take care to complete a call to loop() quickly. If threads take too long,
+ * the watchdog timer on the ESP8266 will decide that the processor is stuck, and reset the whole system. Long execution times
+ * can also interfere with WiFi performance.
+ * 
+ * Interrupts are serviced as usual, and interrupt the running threads.
  */
 class ThreadManager {
  private:
-  std::vector<Thread *> mThreads;
+  std::vector<Thread *> mThreads; //!< List of threads being managed
 
   public:
-
+  /**
+   * Call loop() on every thread. This function should be put in the main loop of the arduino framework.
+   */
   void handle()
   {
     for(auto it = mThreads.begin(); it != mThreads.end(); it++)
@@ -60,49 +88,49 @@ class ThreadManager {
         (*it)->loop();
       }
   }
-  
+
+
+  /**
+   * Add a new thread to be managed by this manager
+   */  
   void add(Thread *thread)
   {
     mThreads.push_back(thread);
+    thread->mParent = this;
   }
 
 };
 
+
 /**
-   A thread is a virtual object which is based around the idea of a
-   single-purpose arduino sketch. It initialises in the constructor,
-   and then has a loop method which is called (nearly) continuously.
+ * A valid thread which does nothing. For debugging/testing purposes.
  */
-
-Thread::Thread(ThreadManager &mgr) : mManager(mgr)
-  {mManager.add(this);}
-
-
-#include <MQTT.h>
-#include <ESP8266WiFi.h>
-
 class DummyThread : public Thread {
   public:
-    DummyThread (ThreadManager &tm):
-      Thread(tm) {}
+    DummyThread ():
+      Thread() {}
 
     virtual void loop () {}
 };
 
-/**
-   Time to add some features for data collection.
-   
-   A DCThread with an MQTT object which the thread relies on. Also
-   includes an option to run a polled function at a given
-   period. Polling will not happen if there is no MQTT connection.
- */
+#include <MQTT.h>
+#include <ESP8266WiFi.h>
 
+/**
+ * A DCThread (Data Collection Thread) with an MQTT object which the thread relies on.
+ * 
+ * This thread has some knowlege of the network, and owns its own MQTT connection which it manages.
+ * 
+ * The thread also has a poll() function to be called at a configurable interval. (E.g. to collect a datapoint)
+ */
 class DCThread : public Thread {
  protected:
   // MQTT Connection
   MQTTClient mClient;
   WiFiClient mWiFi;
   const char * mTopic;
+  const char * mUser;
+  const char * mPass;
 
   // Timing for poll()
   unsigned int mPeriod;
@@ -111,43 +139,72 @@ class DCThread : public Thread {
   String mClientName;
 
  public:
+   /**
+   * Default Constructor. It is expected that this class will be inherited from, and that this constructor will only be used from a child class.
+   * 
+   * \param SensorTopic The MQTT topic associated with this data. This is used as an identifier for the thread. It doesn't *need* to correspond to a real measurement (depending on the subclass), but should provide a useful name, and be unique to the monitoring system.
+   * 
+   * \param period The period with which the poll() function should be called. In milliseconds. Set to 0 to disable.
+   */
   DCThread(
-           ThreadManager &mgr,
            const char *SensorTopic,
            unsigned int period = 0
            )
-   : Thread(mgr), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis())
+   : Thread(), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis())
     {
       String name = "MonitorNode: ";
       name += mTopic;
       mClientName = name;
     };
   
-    virtual void beginMQTT (
-            const char *MQTTHost,
-            const int MQTTPort
-           )
-    {
-      mClient.begin(MQTTHost, MQTTPort, mWiFi);
-    }
+  /**
+   * Begin the MQTT instance. This should be called from the main program to give MQTT access details.
+   */
+  virtual void beginMQTT (
+          const char *MQTTHost,
+          const int MQTTPort,
+          const char * MQTTUsername,
+          const char * MQTTPassword
+         )
+  {
+    mClient.begin(MQTTHost, MQTTPort, mWiFi);
+    mUser = MQTTUsername;
+    mPass = MQTTPassword;
+    Serial.println(mClientName + " MQTT Begun"); Serial.flush();
+  }
 
+  /**
+   * Attempt to form a connection to the MQTT server. This should be handled automatically.
+   */
   bool try_connect() {
     if (WiFi.status() != WL_CONNECTED){
       // If wifi isn't connected, yeild
       Serial.println("WiFi Disconnected");
       return false;
     }
-    Serial.println("Offline");
-    String name = "MonitorNode: ";
-    name += mTopic;
-    return mClient.connect(name.c_str());
+    Serial.println(mClientName + " Offline");
+    bool success = mClient.connect(mClientName.c_str(), mUser, mPass);
+    Serial.print(mClientName); 
+    Serial.println(success);
+    Serial.flush();
+    return success;
   }
 
+  /**
+   * Get the MQTT topic associated with this thread
+   */
   const char * topic ()
   {return mTopic;}
 
+  /**
+   * The virtual poll() function to be implemented by subclasses.
+   */
   virtual void poll () {}
   
+  /**
+   * The main loop of the DCThead. This is virtual, so can be reimplemented by subclasses, but should be called in the subclass's main loop to ensure
+   * that the MQTT connection and polling is properly managed.
+   */
   virtual void loop() {
     // Let MQTT do its thing
     mClient.loop();
@@ -166,12 +223,34 @@ class DCThread : public Thread {
   }
 };
 
-class CallbackBroker {
+
+/**
+ * A broker to allow objects to collect MQTT messages to a std::function. This allows calling a non-static member function, which
+ * was otherwise difficult with the MQTT library.
+ * 
+ * This class is not designed for the user to interact with, but to cause ControlThread to work nicely and without hackery.
+ * 
+ * \warning
+ * The main cpp file should instantiate the callback map:
+ \verbatim
+ std::map<MQTTClient *, std::function<void(String &, String &)>> MQTTCallbackBroker::msCallbacks;
+ \endverbatim
+ */
+class MQTTCallbackBroker {
     private:
+        /**
+         * A mapping between MQTTClients, and the callback function for messages received on that client.
+         */
         static std::map<MQTTClient *, std::function<void(String &, String &)>> msCallbacks;
     
     
     public:
+        /**
+         * Each MQTT object should have this function as it's callback for proper operation. This
+         * function looks up the std::function to be called in the map.
+         * 
+         * This function will be called by the MQTT library, not by any of our code.
+         */
         static void callback_target(MQTTClient * client, char topic[], char bytes[], int length)
         {
             auto it = msCallbacks.find(client);
@@ -191,6 +270,12 @@ class CallbackBroker {
             (*it).second(str_topic, str_payload);
         }
         
+        /**
+         * Register a new callback.
+         * 
+         * \param client The MQTTClient object which expects to be receiving messages
+         * \param func std::function callback object. This will receive the topic and message sent to the client.
+         */
         static void register_cb (MQTTClient *client, std::function<void(String &, String &)> func)
         {
             msCallbacks.insert(std::make_pair(client, func));
@@ -198,35 +283,37 @@ class CallbackBroker {
         
 };
 
-void messageReceived(String &topic, String &payload) {
-  Serial.println("incoming: " + topic + " - " + payload);
-}
-
+/**
+ * While DCThreads are for transmitting data, ControlThreads add receiving data capabilities. By
+ * subscribing to MQTT topics, ControlThreads outline the ability for the nodes to have actions.
+ */
 class ControlThread : public DCThread {
  protected:
   bool mLastConnectionState;
 
  public:
+  /**
+   * \param topic A MQTT topic to be associated with this thread. This does not have to be the thread that is listened/transmitted to, but provides a way of naming the instance.
+   * \param period poll() period as per DCThread.
+   */
   ControlThread(
-           ThreadManager &mgr,
            const char *topic,
            unsigned int period = 0
            )
-   : DCThread(mgr, topic, period), mLastConnectionState(false)
+   : DCThread(topic, period), mLastConnectionState(false)
   {};
   
   virtual void beginMQTT (
-            const char *MQTTHost,
-            const int MQTTPort
-           )
+          const char *MQTTHost,
+          const int MQTTPort,
+          const char * MQTTUsername,
+          const char * MQTTPassword
+         )
     {
-        mClient.begin(MQTTHost, MQTTPort, mWiFi);
-        CallbackBroker::register_cb(&mClient, [this](String &a, String &b){this->onMessage(a,b);});
-        mClient.onMessageAdvanced(&CallbackBroker::callback_target);
-        //mClient.onMessage(messageReceived);
+        DCThread::beginMQTT(MQTTHost, MQTTPort, MQTTUsername, MQTTPassword);
+        MQTTCallbackBroker::register_cb(&mClient, [this](String &a, String &b){this->onMessage(a,b);});
+        mClient.onMessageAdvanced(&MQTTCallbackBroker::callback_target);
     }
-
-  virtual void poll () {};
   
   virtual void loop() {
     // Handle disconnects/reconnects
@@ -245,31 +332,53 @@ class ControlThread : public DCThread {
     DCThread::loop();
   }
 
+  /**
+   * Subscribe the MQTT client to a topic. This function should probably be called from onConnect().
+   */
+  void subscribe(const char *topic)
+    {
+      mClient.subscribe(topic);
+    }
+
+  /**
+   * This function is called if the MQTTClient disconnects
+   */
   virtual void onDisconnect() {};
 
+  /**
+   * This function is called when the MQTTClient connects. This is the appropriate place to
+   * make subscriptions to topics.
+   */
   virtual void onConnect() 
-    {
-      //mClient.subscribe(mTopic);
-    };
+    {};
   
+  /**
+   * Called when a message is received on the MQTTClient.
+   * 
+   * \param topic MQTT Topic that message was received on
+   * \param payload MQTT message received
+   */
   virtual void onMessage(String &topic, String &payload) {};
 };
 
-
+/**
+ * Thread which listens for MQTT commands to produce digital signals.
+ * 
+ * This is ideal for e.g. switching relays in response to control commands.
+ */
 class DigitalOutput : public ControlThread {
   public:
     unsigned int mPin;
     bool mActiveHigh;
 
     DigitalOutput(
-          ThreadManager &mgr,
           const char *topic = "control/default/digital",
           unsigned int default_state = LOW,
           bool active_high = true,
           bool open_drain = false,
           unsigned int pin = 16, // NodeMCU D0,
           unsigned int period = 0
-    ): ControlThread(mgr, topic, period), mPin(pin), mActiveHigh(active_high)
+    ): ControlThread(topic, period), mPin(pin), mActiveHigh(active_high)
     {
       pinMode(mPin, open_drain ? OUTPUT_OPEN_DRAIN : OUTPUT);
       digitalWrite(mPin, default_state);
@@ -277,7 +386,7 @@ class DigitalOutput : public ControlThread {
 
     virtual void onConnect() 
     {
-      mClient.subscribe(mTopic);
+      subscribe(mTopic);
     }
 
     virtual void onMessage(String &topic, String &payload)
@@ -306,13 +415,14 @@ class HomieThread : public ControlThread {
         String mLabel;
         String mStatusTopic;
         String mNodeName;
+        std::vector<DCThread *> &mCollectors;
     public:
     HomieThread(
-           ThreadManager &mgr,
            String node_name,
+           std::vector<DCThread *> &collectors,
            const char *basetopic = "status/",
            unsigned int period = 30000
-    ) : mNodeName(node_name), ControlThread(mgr, basetopic, period)
+    ) : mNodeName(node_name), ControlThread(basetopic, period), mCollectors(collectors)
     {
         mTopicBase = String(basetopic);
         
@@ -345,11 +455,11 @@ class HomieThread : public ControlThread {
         // Build a node string
         String node_str = "";
     
-        //for (auto it = collectors.begin(); it != collectors.end(); ++it)
-        //{
-        //  node_str += (*it)->topic();
-        //  node_str += ',';
-        //}
+        for (auto it = mCollectors.begin(); it != mCollectors.end(); ++it)
+        {
+          node_str += (*it)->topic();
+          node_str += ',';
+        }
     
         mClient.publish(mTopicBase + "$nodes", node_str + "[]");
         mClient.publish(mTopicBase + "$fw/name", "ArduinoMonitor");

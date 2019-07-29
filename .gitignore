@@ -1,9 +1,11 @@
 # For this Project
 src/auth.h
+doc/generated
 
 # PlatformIO
 .pioenvs
 .piolibdeps
+.pio
 
 # VS Code
 .vscode

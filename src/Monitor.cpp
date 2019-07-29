@@ -8,118 +8,30 @@
 #include <FS.h>
 #include <ArduinoJson.h>
 
-#include "AnalogMonitor.h"
+#include "NodeThreads.h"
+#include "MonitorThreads.h"
+
 #include <memory>
 
 // Put authorisation in separate file to keep out of repo
 #include "auth.h"
+// Should be in auth.h:
 //const char* update_username = "...";
 //const char* update_password = "...";
+//const char* mqtt_username = "..."; - nullptr for no user
+//const char* mqtt_password = "..."; - nullptr for no pass
+
+// Include configuration
+ #include "sensor_config.h"
 
 // For the threading and data collection
-
-char MQTTServer[64] = "192.168.4.2";
+char MQTTServer[64] = "hugin.px.otago.ac.nz";
 char MQTTPort[8] = "1883";
 ThreadManager tm;
-std::map<MQTTClient *, std::function<void(String &, String &)>> CallbackBroker::msCallbacks;
+std::map<MQTTClient *, std::function<void(String &, String &)>> MQTTCallbackBroker::msCallbacks;
 DSM501A_Monitor * DSM501A_Monitor::myself;
 
-///////////////////////////////////////////////////////////
-// BEGIN NODE CONFIGURATION
-///////////////////////////////////////////////////////////
-const char * node_name = "default_monitor";
-
-std::vector<DCThread *> collectors = {
-
-  /////////////////////
-  // Examples
-  // - Monitor the analog voltage
-  //new AnalogMonitor (tm, "sensor/default/analog"),
-  // - Temperature sensor
-  // new DS18B20Monitor(tm, "sensor/cooling/tank/temperature"), 
-  // - Flow rate sensor with arduino (period = 1000 ms)
-  // new I2CWordMonitor(tm, "sensor/cooling/water_in/flowrate", 1000, 1.0/4.1, 0, "L/min")
-  // - Pressure sensor connected to analog input
-  // new AnalogMonitor (tm, "sensor/cooling/water_in/pressure", 1000, (1200.0/2.62), -155, "kPa"),
-  // - Atmospheric sensor
-  // new DHTTemperatureMonitor(tm, "sensor/lab/atmosphere")
-  // - Many Temperature Sensors
-  // new DS18B20MultiMonitor(tm,
-  //     {
-  //       std::make_pair(0, "sensor/cooling/mosfet/main0"),
-  //       std::make_pair(1, "sensor/cooling/mosfet/main1"),
-  //       std::make_pair(2, "sensor/cooling/mosfet/main2"),
-  //       std::make_pair(3, "sensor/cooling/mosfet/main3"),
-  //       std::make_pair(4, "sensor/cooling/mosfet/main4"),
-  //       std::make_pair(5, "sensor/cooling/mosfet/main5")
-  //     }
-  //   )
-  new MCP9600Monitor(tm, "sensor/default/temperature"),
-  new DigitalMonitor(tm, "state/digital", 10000, 2, true)
-  //new DSM501A_Monitor(tm)
-  
-  // Standard 3V3TTL type signal on NodeMCU D0
-  // new DigitalOutput(tm, "control/default/digital"),
-
-  //Driving a 5V relay board (active low, with open drain) from NodeMCU pin D1 - D4
-  //new DigitalOutput(tm, "control/default/digital1", HIGH, false, true, 2),
-  //new DigitalOutput(tm, "control/default/digital2", HIGH, false, true, 0),
-  //new DigitalOutput(tm, "control/default/digital3", HIGH, false, true, 4),
-  //new DigitalOutput(tm, "control/default/digital4", HIGH, false, true, 5)
-
-
-  // Multiple analog inputs with a Mux
-  // new AnalogMuxMonitor(tm,
-  //   {
-  //     std::make_pair(4, "sensor/big_laser/pump_diode/temperature_set"),
-  //     std::make_pair(5, "sensor/big_laser/pump_diode/temperature"),
-  //     std::make_pair(6, "sensor/big_laser/pump_diode/current"),
-  //     std::make_pair(7, "sensor/big_laser/power"),
-  //     std::make_pair(1, "sensor/big_laser/seed/power")
-  //   },
-  //   {0.947, 0.947, 0.947 * 5.065, 0.947 * 13.87, 2.24 * 10.3},
-  //   {0.0, 0.0, -0.026, 0.321, -0.044},
-  //   {"V", "V", "A", "W", "mW"}
-  // )
-
-  /////////////////////
-  // Actual Device Settings (NB: Don't forget to change node_name)
-  // - Dev Lab Monitor settings
-  // new DS18B20Monitor(tm, "sensor/cooling/tank/temperature", 1000),
-  // new DHTTemperatureMonitor(tm, "sensor/lab_dev/atmosphere", 30000),
-  // new AnalogMonitor (tm, "sensor/cooling/tank/base_pressure", 1000, (1200.0/2.62), -155, "kPa")
-  // - Main Lab Water inlet monitoring
-  // new DHTTemperatureMonitor(tm, "sensor/lab/atmosphere", 30000),
-  // new I2CWordMonitor(tm, "sensor/cooling/water_in/flowrate", 1000, 1.0/4.1, 0, "L/min"),
-  // new AnalogMonitor (tm, "sensor/cooling/water_in/pressure", 1000, (1200.0/2.62), -155, "kPa")
-  // - Main Lab Water outlet monitoring
-  // new I2CWordMonitor(tm, "sensor/cooling/water_out/flowrate", 1000, 1.0/4.1, 0, "L/min"),
-  // new AnalogMonitor (tm, "sensor/cooling/water_out/pressure", 1000, (1200.0/2.62), -169.7, "kPa")
-  // - Outside Atmospheric sensor
-  // new DHTTemperatureMonitor(tm, "sensor/outside/atmosphere", 30000)
-  // - Helmholtz Coil Monitor
-  // new DS18B20Monitor(tm, "sensor/cooling/coil/temperature", 1000)
-  // - Monitor for Dipole Trap Laser
-  // new AnalogMuxMonitor(tm,
-  //   {
-  //     std::make_pair(4, "sensor/big_laser/pump_diode/temperature_set"),
-  //     std::make_pair(5, "sensor/big_laser/pump_diode/temperature"),
-  //     std::make_pair(6, "sensor/big_laser/pump_diode/current"),
-  //     std::make_pair(7, "sensor/big_laser/power"),
-  //     std::make_pair(1, "sensor/big_laser/seed/power")
-  //   },
-  //   {0.947, 0.947, 0.947 * 5.065, 0.947 * 13.87, 2.24 * 10.3},
-  //   {0.0, 0.0, -0.026, 0.321, -0.044},
-  //   {"V", "V", "A", "W", "mW"}
-  // )
-  // - Pump control Driving a 5V relay board (active low, with open drain) from NodeMCU pin D1
-  // new DigitalOutput(tm, "control/water/pump", HIGH, false, true, 5)
-};
-
-HomieThread homie (tm, node_name);
-///////////////////////////////////////////////////////////
-// END NODE CONFIGURATION
-///////////////////////////////////////////////////////////
+HomieThread homie (node_name, collectors);
 
 // Saving config data: Should we do it now?
 bool shouldSaveConfig = false;
@@ -254,7 +166,7 @@ void setup() {
   ///////////////////////////////////////////////////////////
   // Notify the MQTT server of our existance
  
-  homie.beginMQTT(MQTTServer, atoi(MQTTPort));
+  homie.beginMQTT(MQTTServer, atoi(MQTTPort), mqtt_username, mqtt_password);
   // Number of connection attempts:
   int n_attempts = 10;
   bool connected = false;
@@ -291,12 +203,14 @@ void setup() {
   homie.publish_status("init");
   homie.poll();
 
-  ///////////////////////////////////////////////////////////
-  // Start up the monitoring threads
+  tm.add(&homie);
 
+  ///////////////////////////////////////////////////////////
+  // Start up the monitoring threads, and add them to the manager
   for (auto it = collectors.begin(); it != collectors.end(); ++it)
   {
-    (*it)->beginMQTT(MQTTServer, atoi(MQTTPort));
+    tm.add(*it);
+    (*it)->beginMQTT(MQTTServer, atoi(MQTTPort), mqtt_username, mqtt_password);
   }
   homie.publish_status("ready");
 }
