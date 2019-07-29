@@ -25,7 +25,7 @@ This project contains the firmware for the monitoring nodes used in [Kjaergaard 
 
 3. Load the code directory into VSCode -- Use `Open Project` from the PlatformIO Home.
 
-4. Open `src/auth.h`. Inside this file, one can set the username and password used for remote firmware updates, and for the MQTT connection. Pick a username and password combination for the firmware update. If you don't use MQTT authentication (this is the default with the server setup below), then these can be left as `nullptr`, which disables MQTT authentication.
+4. Copy `src/auth.example.h` to `src/auth.h`. Inside this file, set the username and password used for remote firmware updates, and for the MQTT connection. Pick a username and password combination for the firmware update. If you don't use MQTT authentication (this is the default with the server setup below), then these can be left as `nullptr`, which disables MQTT authentication.
 
 5. Open `src/sensor_config.h`. Give the `node_name` variable a meaningful parameter. Each name should be unique to your monitoring system, and explain what it does. One can then add a list of monitoring classes. For now, we can start off by setting up a simple analog monitor:
 

@@ -13,21 +13,16 @@
 
 #include <memory>
 
-// Put authorisation in separate file to keep out of repo
-#include "auth.h"
-// Should be in auth.h:
-//const char* update_username = "...";
-//const char* update_password = "...";
-//const char* mqtt_username = "..."; - nullptr for no user
-//const char* mqtt_password = "..."; - nullptr for no pass
-
 // Include configuration
- #include "sensor_config.h"
+#include "auth.h"
+#include "sensor_config.h"
 
 // For the threading and data collection
 char MQTTServer[64] = "hugin.px.otago.ac.nz";
 char MQTTPort[8] = "1883";
 ThreadManager tm;
+
+// Instances of static things
 std::map<MQTTClient *, std::function<void(String &, String &)>> MQTTCallbackBroker::msCallbacks;
 DSM501A_Monitor * DSM501A_Monitor::myself;
 
@@ -139,7 +134,7 @@ void setup() {
   // Setup Web-based firmware updates and info
   MDNS.begin(host);
   
-  // TODO: Add some info about available measurements
+  // TODO: Add some more info about current measurements
   httpUpdater.setup(&httpServer, update_path, update_username, update_password);
   httpServer.on("/", []() {
     String msg = "This Node is alive\n\n";

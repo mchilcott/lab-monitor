@@ -19,7 +19,7 @@
    - Threads look a lot like an arduino program. They primarily have
      an init(), which is the constructor, and a loop() method, also
      called this. The loop method should return quickly: i.e. delay()
-     statements are strictly forbidden. There [will be] a helper class
+     statements are strictly forbidden. There [maybe will be] a helper class
      to do things like that?
 
    - The loop() method of a thread returns objects which allow the
@@ -214,9 +214,10 @@ class DCThread : public Thread {
       return;
     }
     // Wait for the period to call the poll() function
+    unsigned long currentMillis = millis();
     if (mPeriod > 0) {
-      if (millis() - mLastMillis > mPeriod){
-        mLastMillis = millis();
+      if (currentMillis - mLastMillis > mPeriod){
+        mLastMillis = currentMillis;
         poll();
       }
     }
@@ -365,6 +366,9 @@ class ControlThread : public DCThread {
  * Thread which listens for MQTT commands to produce digital signals.
  * 
  * This is ideal for e.g. switching relays in response to control commands.
+ * 
+ * Note that calls to onConnect(), onMessage() are handled by the parent class, we
+ * just need to implement their behaviour.
  */
 class DigitalOutput : public ControlThread {
   public:
@@ -384,11 +388,17 @@ class DigitalOutput : public ControlThread {
       digitalWrite(mPin, default_state);
     }
 
+    /**
+     * Subscribe to control MQTT topic when connected.
+     */
     virtual void onConnect() 
     {
       subscribe(mTopic);
     }
 
+    /**
+     * 
+     */
     virtual void onMessage(String &topic, String &payload)
     {
       if (topic == mTopic)
@@ -408,7 +418,15 @@ class DigitalOutput : public ControlThread {
     }
 };
 
-
+/**
+ * Implement (parts) of the [Homie](https://homieiot.github.io/) convention.
+ * 
+ * This implementation is not complete, nor do we really try to be, but it does provide a convenient
+ * way of learning about connected nodes. Completeness may be added in the future, but this is probably unlikely.
+ * 
+ * This thread sends out some information about the monitor node periodically. By listening to all subtopics of the base topic,
+ * one can keep an eye on which nodes are running, what measurements they make, etc.
+ */
 class HomieThread : public ControlThread {
     private:
         String mTopicBase;
@@ -421,7 +439,7 @@ class HomieThread : public ControlThread {
            String node_name,
            std::vector<DCThread *> &collectors,
            const char *basetopic = "status/",
-           unsigned int period = 30000
+           unsigned int period = 60000
     ) : mNodeName(node_name), ControlThread(basetopic, period), mCollectors(collectors)
     {
         mTopicBase = String(basetopic);
@@ -432,7 +450,7 @@ class HomieThread : public ControlThread {
         mTopicBase += "/";
         mTopic = mTopicBase.c_str();
         
-        mStatusTopic = mTopicBase + "$status";
+        mStatusTopic = mTopicBase + "$state";
         
         mClient.setWill(mStatusTopic.c_str(), "lost");
         
@@ -443,18 +461,28 @@ class HomieThread : public ControlThread {
         mClientName = label;
     }
 
-    
+    /**
+     * Publish a complete list of status info. 
+     */
     virtual void poll ()
     {
+        // Publish some general status info
         mClient.publish(mTopicBase + "$name", mNodeName);
+        mClient.publish(mTopicBase + "$type", "MonitoringNode");
+        mClient.publish(mTopicBase + "$properties", "");
+
+
         mClient.publish(mTopicBase + "$localip", WiFi.localIP().toString());
         mClient.publish(mTopicBase + "$mac", WiFi.macAddress());
         mClient.publish(mTopicBase + "$stats/rssi", String() + WiFi.RSSI());
-        mClient.publish(mTopicBase + "$stats/interval", String() + mPeriod);
+        mClient.publish(mTopicBase + "$stats/interval", String() + (mPeriod/1000.0));
+
+        mClient.publish(mTopicBase + "$stats/uptime", String()+ (micros64()/1e6));
+        mClient.publish(mTopicBase + "$stats/freeheap", String() = ESP.getFreeHeap());
+        mClient.publish(mTopicBase + "$stats/heapfragment", String() = ESP.getHeapFragmentation());
     
-        // Build a node string
+        // Build a string with a list of the currently monitored signals.
         String node_str = "";
-    
         for (auto it = mCollectors.begin(); it != mCollectors.end(); ++it)
         {
           node_str += (*it)->topic();
@@ -467,6 +495,11 @@ class HomieThread : public ControlThread {
         mClient.publish(mTopicBase + "$implementation", "NodeMCU");
     }
     
+    /**
+     * Publish a new device state (e.g. init, ready, alert).
+     * 
+     * See https://homieiot.github.io/specification/#device-behavior
+     */
     void publish_status (const char * new_status)
     {
         mClient.publish(mStatusTopic, new_status);

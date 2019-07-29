@@ -112,9 +112,8 @@ std::vector<DCThread *> collectors = {
     // Init function
     [](SoftwareSerial &conn){
       conn.write("++auto 1\n");
-      //conn.write("++addr 2\r");
+      conn.write("++addr 2\r");
       conn.write("++read_tmo_ms 3000\n");
-      Serial.println("Inside INIT Function");
     },
     // Series of requests
     {

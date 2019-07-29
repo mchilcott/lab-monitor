@@ -549,11 +549,14 @@ class AnalogMuxMonitor : public DCThread {
 /**
  * Monitor a DSM501A particle sensor to detect air quality.
  * 
- * This class is under development, and not currently functional.
+ * This class is under development, and not currently functional. It needs debugging, and adjusting to use the std::function callbacks. This will also let us 
+ * fix it so the warning below doesn't apply.
+ * 
+ * \warning This class is currently a singleton!! Only one instance should be made. Also, the myself pointer must have an instance made in the main cpp file.
  */
 class DSM501A_Monitor : public DCThread
 {
-  // Caution: This class is currently a singleton!! Only one instance should be instantiated.
+  // 
 
   private:
     boolean mInit; // Make sure init() runs on the first loop() call
@@ -580,6 +583,7 @@ class DSM501A_Monitor : public DCThread
                   )
       : DCThread(topic, period), mPin_1u(pin_1u), mPin_2u5(pin_2u5), mLowMillis_1u(0), mLowMillis_2u5(0)
     {
+      // Attempt to set up pin interrrups.
       pinMode(mPin_1u, INPUT);
       pinMode(mPin_2u5, INPUT);
 
@@ -594,21 +598,30 @@ class DSM501A_Monitor : public DCThread
       myself = this;
     }
 
+    /**
+     * To be called when the 1 um particle pin rises
+     */
     static void rise_1u()
     {
       myself->mLowMillis_1u += millis() - myself->mLastFallMillis_1u;
     }
-
+    /**
+     * To be called when the 1 um particle pin falls
+     */
     static void fall_1u()
     {
       myself->mLastFallMillis_1u = millis();
     }
-
+    /**
+     * To be called when the 2.5 um particle pin rises
+     */
     static void rise_2u5()
     {
       myself->mLowMillis_2u5 += millis() - myself->mLastFallMillis_2u5;
     }
-
+    /**
+     * To be called when the 2.5 um particle pin falls
+     */
     static void fall_2u5()
     {
       myself->mLastFallMillis_2u5 = millis();
@@ -917,9 +930,57 @@ class DigitalMonitor : public DCThread
  * 
  * Note that as we are using a software serial port, there can be issues with timing when running the port at high speed.
  * For this reason, if using the GPIB software, it works much better if you modify the arduino firmware to talk serial at a
- * lower rate than 115200 baud.
+ * lower rate than 115200 baud. (We have success with 19200)
  * 
- * SerialMonitor is a bit of a pain to use and needs more documentation.
+ * Becasue of the threading model we use, this class is currently a bit convoluted. Apart from the serial data, the constructor takes two
+ * std::function based inputs. The vector of request_functions is used because your code *cannot* wait for a serial response from the device.
+ * This is especially true if the device takes a noticable time to respond. Rather than trying to read in characters inside a request_function,
+ * one should call waitFor() with a character to signify the end of the message from the device, and then end the function. When the SerialMonitor has
+ * read in the specified character, the next function in request_func is called, and the string read in via serial is available by calling read(). Note
+ * that the delimiter is still part of the string.
+ * 
+ * If the series of request_funcs has not completed by the time of the next poll(), the sequence is started again. It is likely that you do not want
+ * this to happen, so make sure that the period is sufficiently long that the sequence has time to finish. This interruption means that the whole
+ * process doesn't hang indefinitely if there is a communication error, or the device is disconnected.
+ * 
+ * Note that the initFunc gives access to the SoftwareSerial, allowing you to configure your serial device. The request_funcs have access to the
+ * SoftwareSerial (to issue measurement commands), the MQTTClient (to submit your measurements), and the SerialMonitor instance (for waitFor(), read(), etc).
+ * 
+ * An example of using this with the AR488 flashed on an arduino, and connecting the TTL signal of the arduino to the SoftwareSerial pins.
+ * \verbatim
+   new SerialMonitor(
+    // Init function
+    [](SoftwareSerial &conn){
+      conn.write("++auto 1\n");
+      conn.write("++addr 2\r");
+      conn.write("++read_tmo_ms 3000\n");
+    },
+    // Series of requests
+    {
+      [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
+        conn.write("MEAS:VOLT:AC?\n");
+        mon.waitFor('\n');
+      },
+      [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
+        String value = mon.read();
+        double num_value (0);
+        sscanf(value.c_str(), "%lf\r", &num_value);
+        
+        mqtt.publish(
+            "sensor/agilent_34401A/volts_ac",
+            String("{\"mean\": ") + String(num_value, 10) + ", \"units\": \"V RMS\"}"
+          );
+       }
+    }, "sensor/agilent_34401A/volts_ac"
+  )
+\endverbatim
+ * Note that the `++` commands configure the AR488, and let us setup the GPIB bus. The `MEAS:VOLT:AC?\n` command is sent via GPIB
+ * to an agilent 34401A 6.5 digit multimeter. (Because we haven't specified a range, the device autoranges each time and takes a while).
+ * The measurement is then read in, scanned into a double, and formatted into a JSON string for MQTT transmission. One can (and probably should) use
+ * the JSON library for this, but this is cheap and effective.
+ * 
+ * With our system, we have noticed that numbers sent via GPIB are often not formatted in a way that the JSON decoder on Telegraf works. (In 
+ * particular, a prefixed `+` on the number)
  */
 class SerialMonitor : public DCThread
 {
@@ -937,8 +998,8 @@ class SerialMonitor : public DCThread
     SerialMonitor(
                     std::function<void(SoftwareSerial &)> initFunc,
                     std::vector<std::function<void(SoftwareSerial &, MQTTClient &, SerialMonitor &)>> request_funcs,
-                    const char *name,
-                    unsigned int period = 3000,
+                    const char *name, //!< Measurement name (like MQTT topic)
+                    unsigned int period = 3000, //<! measurement period in milliseconds
                     unsigned int rx_pin = 14, // D5
                     unsigned int tx_pin = 12, // D6
                     unsigned long baud = 19200
@@ -952,6 +1013,8 @@ class SerialMonitor : public DCThread
 
   void init(){
         mConnection.begin(mBaud);
+        // Blocking transmission for high-speeds.
+        // Not sure it actually helps.
         if (mBaud >= 115200)
           mConnection.enableIntTx(false);
         mInitFunc(mConnection);
