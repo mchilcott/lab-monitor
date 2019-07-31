@@ -138,6 +138,8 @@ class DCThread : public Thread {
 
   String mClientName;
 
+  bool mInit;
+
  public:
    /**
    * Default Constructor. It is expected that this class will be inherited from, and that this constructor will only be used from a child class.
@@ -150,7 +152,7 @@ class DCThread : public Thread {
            const char *SensorTopic,
            unsigned int period = 0
            )
-   : Thread(), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis())
+   : Thread(), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis()), mInit(false)
     {
       String name = "MonitorNode: ";
       name += mTopic;
@@ -170,7 +172,6 @@ class DCThread : public Thread {
     mClient.begin(MQTTHost, MQTTPort, mWiFi);
     mUser = MQTTUsername;
     mPass = MQTTPassword;
-    Serial.println(mClientName + " MQTT Begun"); Serial.flush();
   }
 
   /**
@@ -182,11 +183,7 @@ class DCThread : public Thread {
       Serial.println("WiFi Disconnected");
       return false;
     }
-    Serial.println(mClientName + " Offline");
     bool success = mClient.connect(mClientName.c_str(), mUser, mPass);
-    Serial.print(mClientName); 
-    Serial.println(success);
-    Serial.flush();
     return success;
   }
 
@@ -200,6 +197,11 @@ class DCThread : public Thread {
    * The virtual poll() function to be implemented by subclasses.
    */
   virtual void poll () {}
+
+  /**
+   * An init() function to be implemented by subclasses. This 
+   */
+  virtual void init () {}
   
   /**
    * The main loop of the DCThead. This is virtual, so can be reimplemented by subclasses, but should be called in the subclass's main loop to ensure
@@ -213,6 +215,14 @@ class DCThread : public Thread {
       try_connect();
       return;
     }
+
+    if(!mInit)
+      {
+        mInit = true;
+        init();
+      }
+
+
     // Wait for the period to call the poll() function
     unsigned long currentMillis = millis();
     if (mPeriod > 0) {

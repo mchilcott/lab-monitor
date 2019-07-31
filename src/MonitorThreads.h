@@ -78,7 +78,6 @@ class AnalogMonitor : public DCThread
  */
 class DS18B20Monitor : public DCThread {
   private:
-    boolean mInit; //!< Make sure init() runs on the first loop() call
     unsigned int mPin; //!< Pin the OneWire signal is connected to
 
     OneWire mOW;
@@ -94,7 +93,7 @@ class DS18B20Monitor : public DCThread {
                     unsigned int pin = 2, // NodeMCU D4. Remeber: This is the GPIO pin number for the ESP module, not the NodeMCU label
                     unsigned int resolution = 12
                   )
-      : DCThread(topic, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
+      : DCThread(topic, period), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
       mConversionDelay(750 / (1 << (12 - resolution)) + 20), // This conversion formula is from the DallasTemperature WaitForConversion example (With an extra 20 ms for safety)
       mLastRequestTime(millis()), mConverting(false)
     {} 
@@ -139,11 +138,8 @@ class DS18B20Monitor : public DCThread {
      */
     virtual void loop()
     { 
-      if(!mInit)
-      {
-        init();
-        mInit = true;
-      }
+      // Manage the polling, connection, etc
+      DCThread::loop();
 
       if(mConverting && millis() - mLastRequestTime > mConversionDelay)
       {
@@ -157,8 +153,6 @@ class DS18B20Monitor : public DCThread {
         mClient.publish(topic(), output);
       }
 
-      // Manage the polling, connection, etc
-      DCThread::loop();
     }
 };
 
@@ -269,7 +263,6 @@ class I2CWordMonitor : public DCThread
  */
 class DHTTemperatureMonitor : public DCThread {
   private:
-    boolean mInit; // Make sure init() runs on the first loop() call
     unsigned int mPin; // Pin the OneWire signal is connected to
     const char * mTopic;
 
@@ -284,7 +277,7 @@ class DHTTemperatureMonitor : public DCThread {
                     unsigned int pin = 0, // NodeMCU D3
                     unsigned int dht_type = DHT22
                   )
-      : DCThread(topic, period), mInit(false), mPin(pin), mTopic(topic), mDHT(pin, dht_type), mLastRequestTime(millis()),
+      : DCThread(topic, period), mPin(pin), mTopic(topic), mDHT(pin, dht_type), mLastRequestTime(millis()),
       mConverting(false)
     {
       sensor_t sensor;
@@ -309,11 +302,9 @@ class DHTTemperatureMonitor : public DCThread {
 
     virtual void loop()
     { 
-      if(!mInit)
-      {
-        init();
-        mInit = true;
-      }
+
+      // Manage the polling, connection, etc
+      DCThread::loop();
 
       if(mConverting && millis() - mLastRequestTime > mConversionDelay)
       {
@@ -348,9 +339,6 @@ class DHTTemperatureMonitor : public DCThread {
           mClient.publish(output_topic, output);
         }
       }
-
-      // Manage the polling, connection, etc
-      DCThread::loop();
     }
 };
 
@@ -363,7 +351,6 @@ class DHTTemperatureMonitor : public DCThread {
  */
 class DS18B20MultiMonitor : public DCThread {
   private:
-    boolean mInit; //!< Make sure init() runs on the first loop() call
     unsigned int mPin; //!< Pin the OneWire signal is connected to
 
     OneWire mOW;
@@ -381,7 +368,7 @@ class DS18B20MultiMonitor : public DCThread {
                     unsigned int pin = 2, // NodeMCU D4. Remeber: This is the GPIO pin number for the ESP module, not the NodeMCU label
                     unsigned int resolution = 12
                   )
-      : DCThread(index_to_topic[0].second, period), mInit(false), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
+      : DCThread(index_to_topic[0].second, period), mPin(pin), mOW(pin), mSensor(&mOW), mResolution(resolution),
       mConversionDelay(750 / (1 << (12 - resolution)) + 20), // This conversion formula is from the DallasTemperature WaitForConversion example (with an extra 20 ms for safety)
       mLastRequestTime(millis()), mConverting(false), mIndexToTopic(index_to_topic)
     {} 
@@ -449,11 +436,9 @@ class DS18B20MultiMonitor : public DCThread {
      */
     virtual void loop()
     { 
-      if(!mInit)
-      {
-        init();
-        mInit = true;
-      }
+ 
+      // Manage the polling, connection, etc
+      DCThread::loop();
 
       if(mConverting && millis() - mLastRequestTime > mConversionDelay)
       {
@@ -471,8 +456,7 @@ class DS18B20MultiMonitor : public DCThread {
         }
       }
 
-      // Manage the polling, connection, etc
-      DCThread::loop();
+
     }
 };
 
@@ -559,7 +543,6 @@ class DSM501A_Monitor : public DCThread
   // 
 
   private:
-    boolean mInit; // Make sure init() runs on the first loop() call
     
     unsigned int mPin_1u;
     unsigned int mPin_2u5;
@@ -667,7 +650,6 @@ class DSM501A_Monitor : public DCThread
 class HMC5883Monitor : public DCThread {
 
   private:
-    boolean mInit; // Make sure init() runs on the first loop() call
     const char * mTopic;
     unsigned int mI2C_sda;
     unsigned int mI2C_sdc;
@@ -679,15 +661,19 @@ class HMC5883Monitor : public DCThread {
                     unsigned int i2c_sda = 4, // NodeMCU D2.
                     unsigned int i2c_sdc = 5  // NodeMCU D1.
                   )
-      : DCThread(topic, period), mInit(false), mTopic(topic), mMag(), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
+      : DCThread(topic, period), mTopic(topic), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc), mMag()
+    {} 
+
+    virtual void init()
     {
-        Wire.begin(mI2C_sda, mI2C_sdc);
-        if(!mMag.begin())
-            {
-                /* There was a problem detecting the HMC5883 ... check your connections */
-                Serial.println("HMC5883 not detected ... Check your wiring!");
-            }
-    } 
+      Wire.begin(mI2C_sda, mI2C_sdc);
+      Serial.println("Mag Init");
+      if(!mMag.begin())
+        {
+          /* There was a problem detecting the HMC5883 ... check your connections */
+          Serial.println("HMC5883 not detected ... Check your wiring!");
+        }
+    }
 
     virtual void poll()
     {
@@ -695,6 +681,7 @@ class HMC5883Monitor : public DCThread {
         Wire.begin(mI2C_sda, mI2C_sdc);
         sensors_event_t event; 
         mMag.getEvent(&event);
+        Serial.println("Mag measured");
         return;
 
         float x = event.magnetic.x;
@@ -721,13 +708,6 @@ class HMC5883Monitor : public DCThread {
         output_topic = topic();
         output_topic += "/z";
         mClient.publish(output_topic, output);
-    }
-
-    virtual void loop()
-    { 
-
-      // Manage the polling, connection, etc
-      DCThread::loop();
     }
 };
 
@@ -796,7 +776,6 @@ class MAX31855Monitor : public DCThread {
 class MCP9600Monitor : public DCThread {
 
   private:
-    bool mInit;
     unsigned int mPin; // Pin the OneWire signal is connected to
     const char * mTopic;
 
@@ -815,7 +794,7 @@ class MCP9600Monitor : public DCThread {
                     unsigned int i2c_sdc = 5,  // NodeMCU D1.
                     unsigned int i2c_addr = MCP9600_I2CADDR_DEFAULT //Address of the remote device
                   )
-      : DCThread(topic, period), mTopic(topic), mInit(false), mWire(), mType(type), mI2C_addr(i2c_addr),  mTherm()
+      : DCThread(topic, period), mTopic(topic), mWire(), mType(type), mI2C_addr(i2c_addr),  mTherm()
     {
         mWire.begin(i2c_sda, i2c_sdc);
     }
@@ -853,18 +832,6 @@ class MCP9600Monitor : public DCThread {
         out_topic += "/ambient_temperature";
         mClient.publish(out_topic, output);
 
-    }
-
-    virtual void loop()
-    { 
-      if(!mInit)
-        {
-          init();
-          mInit = true;
-        }
-
-      // Manage the polling, connection, etc
-      DCThread::loop();
     }
 };
 
@@ -992,7 +959,6 @@ class SerialMonitor : public DCThread
     char mWaitingFor;
     unsigned int mRequestStep;
     unsigned long mBaud;
-    bool mInit;
 
   public:
     SerialMonitor(
@@ -1008,7 +974,7 @@ class SerialMonitor : public DCThread
       mConnection(rx_pin, tx_pin, false, 256),
       mInput(), mWaitingFor('\0'), mRequestStep(0),
       mInitFunc(initFunc),
-      mBaud(baud), mInit(false)
+      mBaud(baud)
       {}
 
   void init(){
@@ -1054,14 +1020,8 @@ class SerialMonitor : public DCThread
     
   virtual void loop()
     {
-      Serial.flush();
-      if(!mInit)
-        {
-          init();
-          mInit = true;
-        }
       // Do polling
-
+      DCThread::loop();
       //Serial.println("Polling");
 
       // Read from serial
@@ -1076,7 +1036,7 @@ class SerialMonitor : public DCThread
         if (c == mWaitingFor)
           handleRequest();
       }
-      DCThread::loop();
+     
     }
 
 

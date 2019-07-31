@@ -5,7 +5,7 @@ extern ThreadManager tm;
 // Configure this monitor node below
 //////////////////////////////////////////
 
-const char * node_name = "HP34401A_GPIB_mon";
+const char * node_name = "default_testing";
 
 std::vector<DCThread *> collectors = {
 
@@ -60,6 +60,36 @@ std::vector<DCThread *> collectors = {
   //   {"V", "V", "A", "W", "mW"}
   // )
 
+  // Magnetic field sensor
+  new HMC5883Monitor("sensor/default/mag_field"),
+
+  // Monitor an AC voltage with a 34401A multimeter via GPIB. See the documentation for the SerialMonitor Class
+  // new SerialMonitor(
+  //   // Init function
+  //   [](SoftwareSerial &conn){
+  //     conn.write("++auto 1\n");
+  //     conn.write("++addr 2\r");
+  //     conn.write("++read_tmo_ms 3000\n");
+  //   },
+  //   // Series of requests
+  //   {
+  //     [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
+  //       conn.write("MEAS:VOLT:AC?\n");
+  //       mon.waitFor('\n');
+  //     },
+  //     [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
+  //       String value = mon.read();
+  //       double num_value (0);
+  //       sscanf(value.c_str(), "%lf\r", &num_value);
+        
+  //       mqtt.publish(
+  //           "sensor/agilent_34401A/volts_ac",
+  //           String("{\"mean\": ") + String(num_value, 10) + ", \"units\": \"V RMS\"}"
+  //         );
+  //      }
+  //   }, "sensor/agilent_34401A/volts_ac"
+  // )
+
   /////////////////////
   // Actual Device Settings (NB: Don't forget to change node_name)
   // - Dev Lab Monitor settings
@@ -108,31 +138,6 @@ std::vector<DCThread *> collectors = {
   //   }
   // )
 
-  new SerialMonitor(
-    // Init function
-    [](SoftwareSerial &conn){
-      conn.write("++auto 1\n");
-      conn.write("++addr 2\r");
-      conn.write("++read_tmo_ms 3000\n");
-    },
-    // Series of requests
-    {
-      [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
-        conn.write("MEAS:VOLT:AC?\n");
-        mon.waitFor('\n');
-      },
-      [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
-        String value = mon.read();
-        double num_value (0);
-        sscanf(value.c_str(), "%lf\r", &num_value);
-        
-        mqtt.publish(
-            "sensor/agilent_34401A/volts_ac",
-            String("{\"mean\": ") + String(num_value, 10) + ", \"units\": \"V RMS\"}"
-          );
-       }
-    }, "sensor/agilent_34401A/volts_ac"
-  )
 };
 
 ///////////////////////////////////////////////////////////
