@@ -18,8 +18,6 @@
 #include "sensor_config.h"
 
 // For the threading and data collection
-char MQTTServer[64] = "hugin.px.otago.ac.nz";
-char MQTTPort[8] = "1883";
 ThreadManager tm;
 
 // Instances of static things

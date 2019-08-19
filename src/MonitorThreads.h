@@ -146,6 +146,10 @@ class DS18B20Monitor : public DCThread {
         mConverting = false;
         // Done converting
         float temperature = mSensor.getTempCByIndex(0);
+        if (temperature == DEVICE_DISCONNECTED_C) {
+            Serial.println("Error reading temperature!");
+            return;
+        }
         // Cheap JSON
         String output = "{\"mean\": ";
         output += String(temperature, mResolution - 8);
@@ -449,6 +453,10 @@ class DS18B20MultiMonitor : public DCThread {
         {
           float temperature = mSensor.getTempCByIndex(it->first);
           // Cheap JSON
+          if (temperature == DEVICE_DISCONNECTED_C) {
+            Serial.println("Error reading temperature!");
+            continue;
+          }
           String output = "{\"mean\": ";
           output += String(temperature, mResolution - 8);
           output += ", \"units\": \"deg C\"}";
@@ -530,6 +538,7 @@ class AnalogMuxMonitor : public DCThread {
     }
 };
 
+
 /**
  * Monitor a DSM501A particle sensor to detect air quality.
  * 
@@ -537,6 +546,8 @@ class AnalogMuxMonitor : public DCThread {
  * fix it so the warning below doesn't apply.
  * 
  * \warning This class is currently a singleton!! Only one instance should be made. Also, the myself pointer must have an instance made in the main cpp file.
+ * 
+ * \warning Note also the ICACHE_RAM_ATTR attribute on the interrupt service routines. Not having these causes a crash, at least when using CHANGE flags.
  */
 class DSM501A_Monitor : public DCThread
 {
@@ -566,55 +577,59 @@ class DSM501A_Monitor : public DCThread
                   )
       : DCThread(topic, period), mPin_1u(pin_1u), mPin_2u5(pin_2u5), mLowMillis_1u(0), mLowMillis_2u5(0)
     {
+      myself = this;
       // Attempt to set up pin interrrups.
       pinMode(mPin_1u, INPUT);
       pinMode(mPin_2u5, INPUT);
 
-      attachInterrupt(mPin_1u, this->rise_1u, RISING);
-      attachInterrupt(mPin_1u, this->fall_1u, FALLING);
-
-      attachInterrupt(mPin_2u5, this->rise_2u5, RISING);
-      attachInterrupt(mPin_2u5, this->fall_2u5, FALLING);
+      attachInterrupt(digitalPinToInterrupt(mPin_1u), myself->rise_1u, CHANGE);
+      attachInterrupt(digitalPinToInterrupt(mPin_2u5), this->rise_2u5, CHANGE);
 
       mLastMeasurementMillis = millis();
       mLastFallMillis_1u = mLastFallMillis_2u5 = millis();
-      myself = this;
+      
     }
 
     /**
-     * To be called when the 1 um particle pin rises
+     * To be called when the 1 um particle pin changes
      */
-    static void rise_1u()
+    static void ICACHE_RAM_ATTR rise_1u()
     {
-      myself->mLowMillis_1u += millis() - myself->mLastFallMillis_1u;
-    }
-    /**
-     * To be called when the 1 um particle pin falls
-     */
-    static void fall_1u()
-    {
-      myself->mLastFallMillis_1u = millis();
+      if(digitalRead(myself->mPin_1u) == HIGH)
+      {
+        // Rising edge
+        int length = millis() - myself->mLastFallMillis_1u;
+        myself->mLowMillis_1u += length;
+      }
+      else
+      {
+        // Falling Edge
+        myself->mLastFallMillis_1u = millis();
+      }
     }
     /**
      * To be called when the 2.5 um particle pin rises
      */
-    static void rise_2u5()
+    static void ICACHE_RAM_ATTR rise_2u5()
     {
-      myself->mLowMillis_2u5 += millis() - myself->mLastFallMillis_2u5;
-    }
-    /**
-     * To be called when the 2.5 um particle pin falls
-     */
-    static void fall_2u5()
-    {
-      myself->mLastFallMillis_2u5 = millis();
+      if(digitalRead(myself->mPin_2u5) == HIGH)
+      {
+        // Rising edge
+        int length =  millis() - myself->mLastFallMillis_2u5;
+        myself->mLowMillis_2u5 += length;
+      }
+      else
+      {
+        // Falling Edge
+        myself->mLastFallMillis_2u5 = millis();
+      }
     }
 
     virtual void poll()
     {
       // Calculate low time ratio
-      double ratio_1u = ((double) mLowMillis_1u) / mPeriod;
-      double ratio_2u5 = ((double) mLowMillis_2u5) / mPeriod;
+      double ratio_1u = ((double) mLowMillis_1u) / mPeriod * 100;
+      double ratio_2u5 = ((double) mLowMillis_2u5) / mPeriod * 100;
 
       // Reset
       mLowMillis_1u = mLowMillis_2u5 = 0;
@@ -645,12 +660,11 @@ class DSM501A_Monitor : public DCThread
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
 /**
- * Monitor the HMC5883 3 axis magnetic field sensor.
+ * Monitor the HMC5883(L) 3 axis magnetic field sensor.
  */
 class HMC5883Monitor : public DCThread {
 
   private:
-    const char * mTopic;
     unsigned int mI2C_sda;
     unsigned int mI2C_sdc;
     Adafruit_HMC5883_Unified mMag;
@@ -661,7 +675,7 @@ class HMC5883Monitor : public DCThread {
                     unsigned int i2c_sda = 4, // NodeMCU D2.
                     unsigned int i2c_sdc = 5  // NodeMCU D1.
                   )
-      : DCThread(topic, period), mTopic(topic), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc), mMag()
+      : DCThread(topic, period), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc), mMag()
     {} 
 
     virtual void init()
@@ -677,12 +691,12 @@ class HMC5883Monitor : public DCThread {
 
     virtual void poll()
     {
-        Serial.println("Mag measure");
         Wire.begin(mI2C_sda, mI2C_sdc);
+        Serial.println("Mag measure");
+        
         sensors_event_t event; 
         mMag.getEvent(&event);
         Serial.println("Mag measured");
-        return;
 
         float x = event.magnetic.x;
         float y = event.magnetic.y;
@@ -711,6 +725,117 @@ class HMC5883Monitor : public DCThread {
     }
 };
 
+
+/**
+ * Monitor the [QMC5883](http://wiki.epalsite.com/index.php?title=QMC5883L_Electronic_Compass) 3 axis magnetic field sensor. This is a chinese clone of the HMC5833. 
+ */
+class QMC5883Monitor : public DCThread {
+
+  private:
+    unsigned int mI2C_sda;
+    unsigned int mI2C_sdc;
+
+    uint8_t QMC_ADDR = (0x1A>>1);
+    uint8_t DATA_REGISTER_BEGIN = (0x00);
+    
+    uint8_t SET_RESET_REGISTER = (0x0B);
+    uint8_t RESET_PERIOD = (0x01); //!< Recommended reset register value according to datasheet
+
+    uint8_t CONTROL_REGISTER = (0x09);
+
+    uint8_t CONTROL_MODE_STANDBY =    (0b00 << 0);
+    uint8_t CONTROL_MODE_CONTINUOUS = (0b01 << 0);
+
+    uint8_t CONTROL_RATE_10HZ =  (0b00 << 2);
+    uint8_t CONTROL_RATE_50HZ =  (0b01 << 2);
+    uint8_t CONTROL_RATE_100HZ = (0b10 << 2);
+    uint8_t CONTROL_RATE_200HZ = (0b11 << 2);
+
+    uint8_t CONTROL_RANGE_2G = (0b00 << 4);
+    uint8_t CONTROL_RANGE_8G = (0b01 << 4);
+
+    uint8_t CONTROL_OVERSAMPLE_512 = (0b00 << 6);
+    uint8_t CONTROL_OVERSAMPLE_265 = (0b01 << 6);
+    uint8_t CONTROL_OVERSAMPLE_128 = (0b10 << 6);
+    uint8_t CONTROL_OVERSAMPLE_64 =  (0b11 << 6);
+
+
+
+  public:
+    QMC5883Monitor(
+                    const char * topic = "sensor/default/mag_field",
+                    unsigned int period = 2000,
+                    unsigned int i2c_sda = 4, // NodeMCU D2.
+                    unsigned int i2c_sdc = 5  // NodeMCU D1.
+                  )
+      : DCThread(topic, period), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc)
+    {} 
+
+    virtual void init()
+    {
+      Wire.begin(mI2C_sda, mI2C_sdc);
+      Serial.println("Mag Init");
+
+      Wire.beginTransmission(QMC_ADDR);
+      Wire.write(SET_RESET_REGISTER);
+      Wire.write(RESET_PERIOD);
+      Wire.endTransmission();
+
+      Wire.beginTransmission(QMC_ADDR);
+      Wire.write(CONTROL_REGISTER);
+      Wire.write(CONTROL_MODE_CONTINUOUS | CONTROL_RATE_50HZ | CONTROL_RANGE_8G | CONTROL_OVERSAMPLE_512);
+      Wire.endTransmission();
+    }
+
+    virtual void poll()
+    {
+        Wire.begin(mI2C_sda, mI2C_sdc);
+
+        int16_t x, y, z; //triple axis data
+
+        Wire.beginTransmission(QMC_ADDR);
+        Wire.write(DATA_REGISTER_BEGIN); //start with register 3.
+        Wire.endTransmission();
+
+        //Read the data.. 2 bytes for each axis.. 6 total bytes
+        Wire.requestFrom(QMC_ADDR, 6);
+        
+        x = Wire.read(); //LSB x
+        x |= Wire.read() << 8; //MSB x
+        z = Wire.read(); //LSB z
+        z |= Wire.read() << 8; //MSB z
+        y = Wire.read(); //LSB y
+        y |= Wire.read() << 8; //MSB y
+        
+
+        float coeff = 8.0 / 32767;
+        float fx = x * coeff;
+        float fy = y * coeff;
+        float fz = z * coeff;
+        // Cheap JSON
+        String output = "{\"mean\": ";
+        output += String(fx, 5);
+        output += ", \"units\": \"G\"}";
+        String output_topic = topic();
+        output_topic += "/x";
+        mClient.publish(output_topic, output);
+        
+        output = "{\"mean\": ";
+        output += String(fy, 5);
+        output += ", \"units\": \"G\"}";
+        output_topic = topic();
+        output_topic += "/y";
+        mClient.publish(output_topic, output);
+        
+        output = "{\"mean\": ";
+        output += String(fz, 5);
+        output += ", \"units\": \"G\"}";
+        output_topic = topic();
+        output_topic += "/z";
+        mClient.publish(output_topic, output);
+    }
+};
+
 #include <SPI.h>
 #include <Adafruit_MAX31855.h>
 /**
@@ -721,7 +846,6 @@ class HMC5883Monitor : public DCThread {
 class MAX31855Monitor : public DCThread {
 
   private:
-    unsigned int mPin; // Pin the OneWire signal is connected to
     const char * mTopic;
 
     Adafruit_MAX31855 mTherm;
@@ -776,7 +900,6 @@ class MAX31855Monitor : public DCThread {
 class MCP9600Monitor : public DCThread {
 
   private:
-    unsigned int mPin; // Pin the OneWire signal is connected to
     const char * mTopic;
 
     TwoWire mWire;
@@ -843,29 +966,28 @@ void attachInterrupt(uint8_t pin, std::function<void(void)> callback, int mode);
 
 /**
  * Monitor a digital signal.
- * 
- * This class has some strange behaviours due to the callbacks not behaving as expected (or perhaps lack of debouncing).
  */
 class DigitalMonitor : public DCThread 
 {
   private:
     unsigned int mPin;
+    bool mASCII;
 
   public:
     DigitalMonitor(
                     const char * topic = "state/digital",
                     unsigned int period = 10000,
                     unsigned int pin = 4,  //!< pin to be monitored
-                    bool pullup = false
+                    bool pullup = false,
+                    bool output_ASCII = false //!< Output HIGH/LOW values instead of 1/0
                   )
-      : DCThread(topic, period), mPin(pin)
+      : DCThread(topic, period), mPin(pin), mASCII(output_ASCII)
     {
       pinMode(mPin, pullup ? INPUT_PULLUP : INPUT);
 
       attachInterrupt(mPin, [&](){
         this->poll();
       }, RISING);
-
       attachInterrupt(mPin, [&](){
         this->poll();
       }, FALLING);
@@ -878,7 +1000,13 @@ class DigitalMonitor : public DCThread
     {
       int state = digitalRead(mPin);
 
-      String s_state ((state == HIGH)? "HIGH" : "LOW");
+      String s_state;
+
+      if(mASCII)
+        s_state = ((state == HIGH)? "HIGH" : "LOW");
+      else
+        s_state = ((state == HIGH)? "1" : "0");
+        
 
       String output = "{\"state\": \"";
       output += s_state;
@@ -1039,5 +1167,301 @@ class SerialMonitor : public DCThread
      
     }
 
+
+};
+
+
+#include <Adafruit_ADS1015.h>
+/**
+ * Monitor analog voltages with the ADS1115 ADC.
+ * 
+ * 
+ */
+class ADS1115Monitor : public DCThread {
+  private:
+
+    Adafruit_ADS1115 mDevice;
+    std::vector<const char *> mTopics; //!< Listing between sensor index and MQTT topic of measurement
+
+    unsigned int mSDA;
+    unsigned int mSDC;
+
+    adsGain_t mGain;
+
+  public:
+    ADS1115Monitor(
+                    std::vector<const char *> topics,
+                    unsigned int period = 2000,
+                    uint8_t address_offset = 0, //!< Offset depending on connection of ADDR pin. 0 = GND, 1 = VCC, 2 = SDA, 3 = SCL
+                    unsigned int i2c_sda = 4, // NodeMCU D2.
+                    unsigned int i2c_sdc = 5,  // NodeMCU D1.
+                    adsGain_t gain = GAIN_TWOTHIRDS
+
+                  )
+      : DCThread(topics[0], period), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain), mDevice(ADS1015_ADDRESS + address_offset)
+    {
+    } 
+
+
+    /**
+     * Start up sensors. This function prints out some details about the sensors via serial, which may help in identifying sensors.
+     */
+    void init () 
+    {
+      Wire.begin(mSDA, mSDC);
+      mDevice.setGain(mGain);
+    }
+
+    double scale_factor(adsGain_t gain)
+    {
+      double factor = 1;
+      switch(gain)
+      {
+        case GAIN_TWOTHIRDS:
+          factor = 2.0/3.0; break;
+        case GAIN_ONE:
+          factor = 1.0; break;
+        case GAIN_TWO:
+          factor = 2.0; break; 
+        case GAIN_FOUR:
+          factor = 4.0; break; 
+        case GAIN_EIGHT:
+          factor = 8.0; break; 
+        case GAIN_SIXTEEN:
+          factor = 16.0; break; 
+      }
+
+      factor = (4.096 / 32768) / factor;
+      return factor;
+    }
+
+    /**
+     * Start the sensors converting
+     */
+    virtual void poll()
+    {
+      Wire.begin(mSDA, mSDC);
+      for(uint8_t i = 0; i < mTopics.size() && i < 4 ; ++i)
+      {
+        int16_t value = mDevice.readADC_SingleEnded(i);
+        double result = value * scale_factor(mGain);
+
+        String output = "{\"mean\": ";
+        output += String(result, 8);
+        output += ", \"units\": \"V\"}";
+
+        mClient.publish(mTopics[i], output);
+
+      }
+    }
+
+};
+
+/**
+ * Monitor analog voltages with the ADS1115 ADC.
+ * 
+ * 
+ */
+class ADS1115MonitorOverSampled : public DCThread {
+  private:
+
+    Adafruit_ADS1115 mDevice;
+    std::vector<const char *> mTopics; //!< Listing between sensor index and MQTT topic of measurement
+
+    unsigned int mSDA;
+    unsigned int mSDC;
+
+    unsigned int mSamples;
+    unsigned int mSampleCounter;
+
+    std::vector<double> mMean;
+    std::vector<double> mMin;
+    std::vector<double> mMax;
+
+    adsGain_t mGain;
+
+  public:
+    ADS1115MonitorOverSampled(
+                    std::vector<const char *> topics,
+                    unsigned int period = 2000,
+                    uint8_t address_offset = 0, //!< Offset depending on connection of ADDR pin. 0 = GND, 1 = VCC, 2 = SDA, 3 = SCL
+                    unsigned int i2c_sda = 4, // NodeMCU D2.
+                    unsigned int i2c_sdc = 5,  // NodeMCU D1.
+                    adsGain_t gain = GAIN_TWOTHIRDS,
+                    unsigned int oversample_rate = 20
+                  )
+      : DCThread(topics[0], period/oversample_rate), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain), mDevice(ADS1015_ADDRESS + address_offset),
+      mSamples(oversample_rate), mSampleCounter(0), mMean(topics.size(), 0), mMax(topics.size(), NAN), mMin(topics.size(), NAN)
+    {
+    } 
+
+
+    /**
+     * Start up sensors. This function prints out some details about the sensors via serial, which may help in identifying sensors.
+     */
+    void init () 
+    {
+      Wire.begin(mSDA, mSDC);
+      mDevice.setGain(mGain);
+    }
+
+    double scale_factor(adsGain_t gain)
+    {
+      double factor = 1;
+      switch(gain)
+      {
+        case GAIN_TWOTHIRDS:
+          factor = 2.0/3.0; break;
+        case GAIN_ONE:
+          factor = 1.0; break;
+        case GAIN_TWO:
+          factor = 2.0; break; 
+        case GAIN_FOUR:
+          factor = 4.0; break; 
+        case GAIN_EIGHT:
+          factor = 8.0; break; 
+        case GAIN_SIXTEEN:
+          factor = 16.0; break; 
+      }
+
+      factor = (4.096 / 32768) / factor;
+      return factor;
+    }
+
+    /**
+     * Start the sensors converting
+     */
+    virtual void poll()
+    {
+      mSampleCounter ++;
+      Wire.begin(mSDA, mSDC);
+      for(uint8_t i = 0; i < mTopics.size() && i < 4 ; ++i)
+      {
+        int16_t value = mDevice.readADC_SingleEnded(i);
+        double result = value * scale_factor(mGain);
+
+        mMean[i] += result / mSamples;
+
+        if (result > mMax[i] || isnan(mMax[i]))
+        {
+          mMax[i] = result;
+        }
+
+        if (result < mMin[i] || isnan(mMin[i]))
+        {
+          mMin[i] = result;
+        }
+
+      }
+
+      if(mSampleCounter == mSamples)
+      {
+        
+        mSampleCounter = 0;
+
+        for(uint8_t i = 0; i < mTopics.size() && i < 4 ; ++i)
+        {
+          String output = "{\"mean\": ";
+          output += String(mMean[i], 8);
+          output += ", \"units\": \"V\"}";
+
+          mClient.publish(mTopics[i], output);
+          mMean[i]=0;
+
+          output = "{\"min\": ";
+          output += String(mMin[i], 8);
+          output += ", \"units\": \"V\"}";
+
+          mClient.publish(mTopics[i], output);
+          mMin[i]=NAN;
+
+          output = "{\"max\": ";
+          output += String(mMax[i], 8);
+          output += ", \"units\": \"V\"}";
+
+          mClient.publish(mTopics[i], output);
+          mMax[i]=NAN;
+        }
+      }
+
+    }
+
+};
+
+#include <Adafruit_BME280.h>
+/**
+ * Monitor a [BME280 Atmospheric Temperature/Humidity/Pressure sensor](https://www.bosch-sensortec.com/bst/products/all_products/bme280).
+ * 
+ * Note that as well as connecting VCC, GND, then SDI to SDA, and SDC to SCK, you must also connect CSB to VCC (to select I2C), and 
+ * connect SDO to either VCC or GND. SDO will change the I2C address used, but the code will search for both addresses. It is simply 
+ * important that this is well defined.
+ */
+class BME280Monitor : public DCThread {
+  private:
+    const char * mTopic;
+
+    unsigned int mSDA;
+    unsigned int mSDC;
+
+    Adafruit_BME280 mDevice;
+
+    bool mConverting;
+  public:
+    BME280Monitor(
+                    const char * topic = "sensor/default/atmosphere",
+                    unsigned int period = 10000,
+                    unsigned int i2c_sda = 4, // NodeMCU D2.
+                    unsigned int i2c_sdc = 5  // NodeMCU D1.
+                  )
+      : DCThread(topic, period), mSDA(i2c_sda), mSDC(i2c_sdc)
+
+    {
+    } 
+
+    void init () 
+    {
+      Wire.begin(mSDA, mSDC);
+      if(!mDevice.begin())
+      {
+        Serial.println("Cannot find BME280");
+        mPeriod = 0;
+      }
+
+      mDevice.setSampling(Adafruit_BME280::MODE_NORMAL,
+                    Adafruit_BME280::SAMPLING_X16,  // temperature
+                    Adafruit_BME280::SAMPLING_X16, // pressure
+                    Adafruit_BME280::SAMPLING_X16,  // humidity
+                    Adafruit_BME280::FILTER_X16,
+                    Adafruit_BME280::STANDBY_MS_0_5 );
+    }
+
+    virtual void poll()
+    {
+      Wire.begin(mSDA, mSDC);
+
+      float temp = mDevice.readTemperature();
+      String output = "{\"mean\": ";
+      output += String(temp, 3);
+      output += ", \"units\": \"deg C\"}";
+      String output_topic = topic();
+      output_topic += "/temperature";
+      mClient.publish(output_topic, output);
+
+      float pressure = mDevice.readPressure();
+      output = "{\"mean\": ";
+      output += String(pressure, 3);
+      output += ", \"units\": \"Pa\"}";
+      output_topic = topic();
+      output_topic += "/pressure";
+      mClient.publish(output_topic, output);
+
+      float humidity = mDevice.readHumidity();
+      output = "{\"mean\": ";
+      output += String(humidity, 3);
+      output += ", \"units\": \"%\"}";
+      output_topic = topic();
+      output_topic += "/rel_humidity";
+      mClient.publish(output_topic, output);
+    }
 
 };

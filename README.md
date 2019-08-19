@@ -1,6 +1,6 @@
 # Lab Monitoring System
 
-This project contains the firmware for the monitoring nodes used in [Kjaergaard Lab](http://physics.otago.ac.nz/research/kjaergaardlab/), University of Otago, New Zealand.
+This project contains the firmware for the monitoring nodes used in [Kjaergaard Lab](http://physics.otago.ac.nz/research/kjaergaardlab/), University of Otago, New Zealand. You can view our monitoring dashboard [here](http://hoodoo.otago.ac.nz/mattlab/).
 
 ## System Overview
 
@@ -8,7 +8,7 @@ This project contains the firmware for the monitoring nodes used in [Kjaergaard 
 ## Getting Started (Firmware)
 1. To compile and upload this firmware, we use [PlatformIO](https://platformio.org/). PlatformIO is capable of programming many different devices, automatically configureing toolchains and doing much of the hard work of setting a development environment up for you. We recommend most people install PlatformIO along with VSCode by following the instructions [here](https://platformio.org/install/ide?install=vscode).
 
-  > If one has a preference for a different editor, many are supported by PlatformIO, or one can use [PlatformIO Core](https://docs.platformio.org/en/latest/core.html) from the commandline (or makefiles, or configure commands in another IDE). This project can also be compiled from the Arduino IDE, though this is left as an exercise for the reader. (One must take care to follow the Arduino conventions for libraries and file names, and also install the arduino toolchain for ESP8266.) We will proceed assuming that you are using VSCode, and PlatformIO.
+  > If one has a preference for a different editor, many are supported by PlatformIO, or one can use [PlatformIO Core](https://docs.platformio.org/en/latest/core.html) from the commandline (or makefiles, or configure commands in another IDE). This project can also be compiled from the Arduino IDE, though this is left as an exercise for the reader. (One must take care to follow the Arduino conventions for libraries and file names, and also install the arduino toolchain for ESP8266.) We will proceed assuming that you are using VSCode and PlatformIO to program a NodeMCU developement board.
 
 2. Get the code, if you haven't already. You can download a zip file.
 
@@ -44,7 +44,13 @@ The `AnalogMonitor` class allows other parameters. The full list can be seen in 
 If we were measuring an analog signal that corresponded to a resistance with a ratio of 1 mV/ohm, which we wanted to measure once every 0.5 seconds (500 milliseconds), we could set up the measurement
 ```
 std::vector<DCThread *> collectors = {
-    new AnalogMonitor ("sensor/example/resistance", 500, 1000 /* ohms per volt */, 0, "Ohms"),
+    new AnalogMonitor (
+      "sensor/example/resistance", // Measurement name (topic)
+      500,                         // Sample period (milliseconds)
+      1000 /* ohms per volt */,    // Scale factor
+      0,                           // Offset
+      "Ohms"                       // Units
+    ),
 };
 ```
 

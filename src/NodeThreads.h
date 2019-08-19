@@ -154,8 +154,12 @@ class DCThread : public Thread {
            )
    : Thread(), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis()), mInit(false)
     {
-      String name = "MonitorNode: ";
+      String name = "MonitorNode";
+      name += String(ESP.getChipId(), HEX);
+      
+      name += ": ";
       name += mTopic;
+      
       mClientName = name;
     };
   
@@ -480,6 +484,8 @@ class HomieThread : public ControlThread {
         mClient.publish(mTopicBase + "$name", mNodeName);
         mClient.publish(mTopicBase + "$type", "MonitoringNode");
         mClient.publish(mTopicBase + "$properties", "");
+
+        mClient.publish(mTopicBase + "$hostname", wifi_station_get_hostname());
 
 
         mClient.publish(mTopicBase + "$localip", WiFi.localIP().toString());

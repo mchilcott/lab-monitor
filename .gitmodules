@@ -31,3 +31,9 @@
 [submodule "lib/Adafruit_BusIO"]
 	path = lib/Adafruit_BusIO
 	url = https://github.com/adafruit/Adafruit_BusIO.git
+[submodule "lib/Adafruit_ADS1X15"]
+	path = lib/Adafruit_ADS1X15
+	url = https://github.com/adafruit/Adafruit_ADS1X15.git
+[submodule "lib/Adafruit_BME280_Library"]
+	path = lib/Adafruit_BME280_Library
+	url = https://github.com/adafruit/Adafruit_BME280_Library.git
