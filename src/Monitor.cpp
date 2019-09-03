@@ -10,6 +10,7 @@
 
 #include "NodeThreads.h"
 #include "MonitorThreads.h"
+#include "logging.h"
 
 #include <memory>
 
@@ -23,6 +24,11 @@ ThreadManager tm;
 // Instances of static things
 std::map<MQTTClient *, std::function<void(String &, String &)>> MQTTCallbackBroker::msCallbacks;
 DSM501A_Monitor * DSM501A_Monitor::myself;
+
+char gLogBuffer[LOG_ENTRIES][LOG_STRING_SIZE];
+char gLogCount (0);
+char gLogNext (0);
+
 
 HomieThread homie (node_name, collectors);
 
@@ -135,13 +141,27 @@ void setup() {
   // TODO: Add some more info about current measurements
   httpUpdater.setup(&httpServer, update_path, update_username, update_password);
   httpServer.on("/", []() {
-    String msg = "This Node is alive\n\n";
+    String msg = "This Node (";
+    msg += node_name;
+    msg += " @ ";
+    msg += host;
+    msg += ") is alive\n\n";
     msg += "Services: ";
     for (auto it = collectors.begin(); it != collectors.end(); ++it)
       {
+        if (it != collectors.begin())
+          msg += ", ";
         msg += (*it)->topic();
-        msg += ','; 
       }
+
+    msg += "\n\nLogged Messages \n\n";
+    
+    for (int i = 0; i < gLogCount && i < LOG_ENTRIES; ++i)
+    {
+      char ind = (gLogNext + LOG_ENTRIES - i - 1) % LOG_ENTRIES;
+      msg += gLogBuffer[ind];
+      msg += '\n';
+    }
     httpServer.send(200, "text/plain", msg);
   });
   httpServer.begin();

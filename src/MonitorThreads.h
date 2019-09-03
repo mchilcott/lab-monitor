@@ -147,7 +147,7 @@ class DS18B20Monitor : public DCThread {
         // Done converting
         float temperature = mSensor.getTempCByIndex(0);
         if (temperature == DEVICE_DISCONNECTED_C) {
-            Serial.println("Error reading temperature!");
+            write_log("Error reading temperature!");
             return;
         }
         // Cheap JSON
@@ -317,7 +317,7 @@ class DHTTemperatureMonitor : public DCThread {
         mConverting = false;
 
         if (isnan(event.temperature)) {
-            Serial.println("Error reading temperature!");
+            write_log("Error reading temperature!");
         } else {
           float temperature = event.temperature;
           // Cheap JSON
@@ -331,7 +331,7 @@ class DHTTemperatureMonitor : public DCThread {
 
         mDHT.humidity().getEvent(&event);
         if (isnan(event.relative_humidity)) {
-            Serial.println("Error reading humidity!");
+            write_log("Error reading humidity!");
         } else {
           float humidity = event.temperature;
           // Cheap JSON
@@ -454,7 +454,7 @@ class DS18B20MultiMonitor : public DCThread {
           float temperature = mSensor.getTempCByIndex(it->first);
           // Cheap JSON
           if (temperature == DEVICE_DISCONNECTED_C) {
-            Serial.println("Error reading temperature!");
+            write_log("Error reading temperature!");
             continue;
           }
           String output = "{\"mean\": ";
@@ -681,22 +681,19 @@ class HMC5883Monitor : public DCThread {
     virtual void init()
     {
       Wire.begin(mI2C_sda, mI2C_sdc);
-      Serial.println("Mag Init");
       if(!mMag.begin())
         {
           /* There was a problem detecting the HMC5883 ... check your connections */
-          Serial.println("HMC5883 not detected ... Check your wiring!");
+          write_log("HMC5883 not detected ... Check your wiring!");
         }
     }
 
     virtual void poll()
     {
         Wire.begin(mI2C_sda, mI2C_sdc);
-        Serial.println("Mag measure");
         
         sensors_event_t event; 
         mMag.getEvent(&event);
-        Serial.println("Mag measured");
 
         float x = event.magnetic.x;
         float y = event.magnetic.y;
@@ -774,7 +771,6 @@ class QMC5883Monitor : public DCThread {
     virtual void init()
     {
       Wire.begin(mI2C_sda, mI2C_sdc);
-      Serial.println("Mag Init");
 
       Wire.beginTransmission(QMC_ADDR);
       Wire.write(SET_RESET_REGISTER);
@@ -867,7 +863,7 @@ class MAX31855Monitor : public DCThread {
         double c = mTherm.readCelsius();
         
         if (isnan(c)) {
-          Serial.println("Something wrong with thermocouple!");
+          write_log("Something wrong with thermocouple!");
           return;
         }
 
@@ -925,13 +921,12 @@ class MCP9600Monitor : public DCThread {
     void init()
     {
         if (! mTherm.begin(mI2C_addr, &mWire)) {
-            Serial.println("Sensor not found. Check wiring!");
+            write_log("Sensor not found. Check wiring!");
         }
         mTherm.setADCresolution(MCP9600_ADCRESOLUTION_18);
         mTherm.setThermocoupleType(mType);
         mTherm.setFilterCoefficient(3);
         mTherm.enable(true);
-        Serial.println("Started Sensor");
     }
 
     virtual void poll()
@@ -1124,18 +1119,14 @@ class SerialMonitor : public DCThread
 
   void handleRequest()
     {
-      Serial.println("HANDLING A REQUEST");
-      Serial.flush();
       mRequests[mRequestStep](mConnection, mClient, *this);
       mRequestStep ++;
-      Serial.println("DONE REQUEST STEP");
 
       if (mRequestStep == mRequests.size())
         {
           mRequestStep = 0;
           mWaitingFor = '\0';
         }
-
 
       mInput = String();
     }
@@ -1157,8 +1148,6 @@ class SerialMonitor : public DCThread
       {  
         
         char c = mConnection.read();
-        Serial.print("Got a char: ");
-        Serial.println(c);
         mInput += String(c);
 
         if (c == mWaitingFor)
@@ -1423,7 +1412,7 @@ class BME280Monitor : public DCThread {
       Wire.begin(mSDA, mSDC);
       if(!mDevice.begin())
       {
-        Serial.println("Cannot find BME280");
+        write_log("Cannot find BME280");
         mPeriod = 0;
       }
 
@@ -1464,4 +1453,81 @@ class BME280Monitor : public DCThread {
       mClient.publish(output_topic, output);
     }
 
+};
+
+#include <Adafruit_MLX90393.h>
+/**
+ * Monitor the MLX 90393 axis magnetic field sensor.
+ * 
+ * When connecting the board with I2C, pull the CS pin high.
+ */
+class MLX90393Monitor : public DCThread {
+
+  private:
+    unsigned int mI2C_sda;
+    unsigned int mI2C_sdc;
+    Adafruit_MLX90393 mMag;
+  public:
+    MLX90393Monitor(
+                    const char * topic = "sensor/default/mag_field",
+                    unsigned int period = 2000,
+                    unsigned int i2c_sda = 4, // NodeMCU D2.
+                    unsigned int i2c_sdc = 5  // NodeMCU D1.
+                  )
+      : DCThread(topic, period), mI2C_sda(i2c_sda), mI2C_sdc(i2c_sdc), mMag()
+    {} 
+
+    virtual void init()
+    {
+      Wire.begin(mI2C_sda, mI2C_sdc);
+      if(!mMag.begin())
+        {
+          /* There was a problem detecting the HMC5883 ... check your connections */
+          write_log("MLX90393 not detected ... Check your wiring!");
+        }
+
+      // Set up some over sampling - See datasheet for explaination
+      int osr = 3; // Over sample rate setting (0 to 3) 
+      int dig_filt = 7; // Digital filter setting (0 to 7)
+
+      int osr2 = 3; // Temperature oversampling
+      int res_xyz = 0; // Resolution flag
+
+      int register_value = (osr2 << 11) | (res_xyz << 5) | (dig_filt << 2) | (osr);
+      char tx[] = {MLX90393_REG_WR, (register_value >> 8),  (register_value & 0xFF), MLX90393_CONF3};
+      Wire.write(tx, sizeof(tx));
+    }
+
+    virtual void poll()
+    {
+        Wire.begin(mI2C_sda, mI2C_sdc);
+
+        float x(0) ,y(0) ,z(0);
+
+        if(!mMag.readData(&x, &y, &z)) {
+            write_log("Unable to read data from the MLX90393.");
+            return;
+        }
+
+        String output = "{\"mean\": ";
+        output += String(x, 3);
+        output += ", \"units\": \"uT\"}";
+        String output_topic = topic();
+        output_topic += "/x";
+        mClient.publish(output_topic, output);
+        
+        output = "{\"mean\": ";
+        output += String(y, 3);
+        output += ", \"units\": \"uT\"}";
+        output_topic = topic();
+        output_topic += "/y";
+        mClient.publish(output_topic, output);
+        
+        output = "{\"mean\": ";
+        output += String(z, 3);
+        output += ", \"units\": \"uT\"}";
+        output_topic = topic();
+        output_topic += "/z";
+        mClient.publish(output_topic, output);
+    }
 };

@@ -3,6 +3,8 @@
 #include <vector>
 #include <map>
 
+#include "logging.h"
+
 /*
   This particular library is for having multiple sensor threads for my
   NodeMCU monitoring system.  This system was prototyped in Lua using
@@ -184,7 +186,7 @@ class DCThread : public Thread {
   bool try_connect() {
     if (WiFi.status() != WL_CONNECTED){
       // If wifi isn't connected, yeild
-      Serial.println("WiFi Disconnected");
+      write_log("WiFi Disconnected");
       return false;
     }
     bool success = mClient.connect(mClientName.c_str(), mUser, mPass);
@@ -272,7 +274,7 @@ class MQTTCallbackBroker {
             
             if (it == msCallbacks.end())
             {
-                Serial.println("ERROR: CallbackBroker failed to find the right client");
+                write_log("ERROR: CallbackBroker failed to find the right client");
                 return;
             }
             // create topic string
@@ -426,7 +428,7 @@ class DigitalOutput : public ControlThread {
         else if (payload.equalsIgnoreCase("LOW"))
           digitalWrite(mPin, LOW);
         else
-          Serial.println("DigitalOutput: Got invalid command.");
+          write_log("DigitalOutput: Got invalid command.");
         
       }
     }

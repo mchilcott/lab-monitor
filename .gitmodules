@@ -37,3 +37,6 @@
 [submodule "lib/Adafruit_BME280_Library"]
 	path = lib/Adafruit_BME280_Library
 	url = https://github.com/adafruit/Adafruit_BME280_Library.git
+[submodule "lib/Adafruit_MLX90393_Library"]
+	path = lib/Adafruit_MLX90393_Library
+	url = https://github.com/adafruit/Adafruit_MLX90393_Library.git
