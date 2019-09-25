@@ -4,13 +4,24 @@ This project contains the firmware for the monitoring nodes used in [Kjaergaard 
 
 ## System Overview
 
+This system uses a collection of sensors connected to NodeMCU boards, programmed with this firmware, modified for the attached sensors as needed. These sensors transmit measurements as text strings (in JSON format) to a MQTT (message queue) server. The measurement messages are then processed by a NodeRED server  which lets us respond live to the data, and also by Telegraf, to pipe the data to an InfluxDB database. The data in the database can then be viewed with Grafana.
+
+![System Overview](doc/system_diagram.pdf "System Overview")
+
+The instructions for setting up the services, and sensor modules can be found below. We do not provide complete documentation for each of the tools and services we use, as they are documented 
+
+## Features
+- This firmware has drivers for a reasonable number of [sensors](doc/Sensors.md).
+- Data collection is using text over MQTT, which makes combining data from other [sources](doc\usb_device_monitor.py) straightforward.
+- The network connection of each module is configured via web-browser, so they don't have to be reprogrammed if the wifi changes.
+- Each module can be accessed by web-browser, to check it's status, see any error messages, or update the firmware.
 
 ## Getting Started (Firmware)
 1. To compile and upload this firmware, we use [PlatformIO](https://platformio.org/). PlatformIO is capable of programming many different devices, automatically configureing toolchains and doing much of the hard work of setting a development environment up for you. We recommend most people install PlatformIO along with VSCode by following the instructions [here](https://platformio.org/install/ide?install=vscode).
 
   > If one has a preference for a different editor, many are supported by PlatformIO, or one can use [PlatformIO Core](https://docs.platformio.org/en/latest/core.html) from the commandline (or makefiles, or configure commands in another IDE). This project can also be compiled from the Arduino IDE, though this is left as an exercise for the reader. (One must take care to follow the Arduino conventions for libraries and file names, and also install the arduino toolchain for ESP8266.) We will proceed assuming that you are using VSCode and PlatformIO to program a NodeMCU developement board.
 
-2. Get the code, if you haven't already. You can download a zip file.
+2. Get the code, if you haven't already. You can download a package with all dependencies from the [github releases](https://github.com/mchilcott/nodemcu_monitor/releases).
 
   > For the most up-to-date version of the code, using git one can run
   > ```
@@ -18,7 +29,7 @@ This project contains the firmware for the monitoring nodes used in [Kjaergaard 
   > ```
   > This will fetch the latest verson of our code, as well as the libraries we use for connecting to different sensors, which are loaded as submodules in git 
   >
-  > You may also want to generate the documentation with Doxygen (if installed) using
+  > You may also want to generate the code documentation with Doxygen (if installed) using
   > ```
   > doxygen Doxyfile
   > ```
@@ -27,7 +38,7 @@ This project contains the firmware for the monitoring nodes used in [Kjaergaard 
 
 4. Copy `src/auth.example.h` to `src/auth.h`. Inside this file, set the username and password used for remote firmware updates, and for the MQTT connection. Pick a username and password combination for the firmware update. If you don't use MQTT authentication (this is the default with the server setup below), then these can be left as `nullptr`, which disables MQTT authentication.
 
-5. Open `src/sensor_config.h`. Give the `node_name` variable a meaningful parameter. Each name should be unique to your monitoring system, and explain what it does. One can then add a list of monitoring classes. For now, we can start off by setting up a simple analog monitor:
+5. Open `src/sensor_config.h`. Give the `node_name` variable a meaningful parameter. Each name should be unique to each sensor node, and be meaningful. One can then add a list of monitoring classes. For now, we can start off by setting up a simple analog monitor:
 
 '''
 const char * node_name = "analog_example_monitor";
@@ -56,22 +67,26 @@ std::vector<DCThread *> collectors = {
 
 The measurements would then be reported in ohms once every half second.
 
+More examples for monitoring other sensors can be found in the files in `src/config_examples/`.
+
 6. Connect the NodeMCU board to your computer via USB, and upload the firmware. In VSCode, this is done with upload button at the bottom of the screen, or by Terminal -> Run Task (Ctrl+Alt+T), and selecting Platform IO: Upload.
 
-This will compile your firmware, and upload via USB. If the compilation fails, pay attention to the errors, and check your code. If the upload fails, make sure that the NodeMCU is connected, and that platformIO is using the correct serial port. This can be configured in `platformio.ini` -- see the example in this file, or see the [platformio docs](https://docs.platformio.org/en/latest/projectconf/section_env_upload.html).
+This will compile your firmware, and upload via USB. If the compilation fails, pay attention to the errors, and check your code. If the upload fails, make sure that the NodeMCU is connected, and that platformIO is using the correct serial port. You may need to ensure you have the USB serial drivers for the NodeMCU - [try here](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers). The serial port can be configured in `platformio.ini` -- see the [platformio docs](https://docs.platformio.org/en/latest/projectconf/section_env_upload.html).
 
-7. Take the freshly programmed node to the lab. For the analog example, connect the signal between A0 and GND and supply power. Power can be supplied by the USB connector, into the Vin port (Which will take anything between 4.75V and 10V), or put 3.3 V into one of the the 3V3 pins. (Be careful if taking the last option.)
+7. Take the freshly programmed node to the lab. For the analog example, connect the signal between A0 and GND and supply power. Power can be supplied by the USB connector, into the Vin port (Which will take anything between 4.75V and 10V), or put 3.3 V into one of the the 3V3 pins. (Be careful not to overload the chip if taking the last option.)
 
-8. On your phone (or other convenient wifi device), look for a WiFi network with the name `ESP` followed by a sequence of numbers. Connect to this, then point your web browser to 192.168.4.1, or try to open a website, and you should be redirected here.
+8. If you haven't already, set follow the instructions below for getting started with the data collection services. These modules require an MQTT server to send information to for them to start collecting data.
 
-9. From the page that shows up, select to connect to WiFi, and then:
+9. On your phone (or other convenient wifi device), look for a WiFi network with the name `ESP` followed by a sequence of numbers. Connect to this, then point your web browser to 192.168.4.1, or try to open a website, and you should be redirected here. If the network isn't showing up, then try repowering the NodeMCU.
+
+10. From the page that shows up, select to connect to WiFi, and then:
   - Select the network (SSID) your monitoring server is on, and provide the password
-  - Set the address of the monitoring server. (Port 1883 is the default for MQTT. Unless you have a different setup, you won't have to change this.)
+  - Set the address of the monitoring server you set up in step 8. (Port 1883 is the default for MQTT. Unless you have a different setup, you won't have to change this.) This can either be the IP address of that computer on the network, or the hostname.
   - Save this configuration
 
-10. Confirm that data is getting sent your monitoring server. The WiFi network you found in 7 should disappear. If the node isn't able to connect to WiFi, or the server, then check that there isn't an issue with your configuration and repeat set 7.
+11. Confirm that data is getting sent your monitoring server. The WiFi network you found in 7 should disappear. If the node isn't able to connect to WiFi, or the server, then check that there isn't an issue with your configuration and repeat step 7.
 
-11. Enjoy collecting data.
+12. Enjoy collecting data. Have a look at the documentation in `doc` and `doc/generated/html/index.html` to get an idea of the capabilities of this system.
 
 
 ## Getting Started (Services)

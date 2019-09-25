@@ -14,21 +14,17 @@
   - Chronograf :: Database administration, and querying
   - Grafana :: Tool for analysis and visulalization, which works off
                the data stored in the database
-  - NodeRED (Not yet implemented) :: Listens to MQTT and can perform
+  - NodeRED :: Listens to MQTT and can perform
        actions in response. I.e. I'm looking at using this platform
        for automated monitoring.
 * Protocols
 ** MQTT Data Messages
    All data messages will be in JSON form, with the described fields.
-*** Analog
-   These contain:
-   - ~mean~ as data points, which correspond
-   to field keys for Influx. (Yet to extend to ~min~, ~max~, ~std~ depending on sensor.)
-   - name, units as tag keys for influx.
-*** Digital (Not yet in use)
-    These contain:
-    - state (boolean) as field key
-    - name as tag key
+   
+   A standard measurement contains :
+   - The field "mean", which contains the current measurement, or mean of oversampled measurements (extend to ~min~, ~max~, ~std~ depending on sensor and oversampling.)
+   - units of the measurement, e.g. "deg C" "K" "V" "L/min"
+
 
 * Running the services
   Currently, we can spin up the services using ~docker-compose~:
@@ -46,8 +42,7 @@
   
   This compose file also makes sure that the data persists
 
-** The Old Way
-  Everything can be started fresh by running ~SpinUp.sh~.
+** The Old Way, or playing with individual services
 
   The following examples show the main ideas, but the docker commands in ~SpinUp.sh~ also include the command 
   #+BEGIN_EXAMPLE

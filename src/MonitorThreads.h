@@ -54,7 +54,7 @@ class AnalogMonitor : public DCThread
   {
 
     // Note the magic number to convert from number to volts
-    double measurement = analogRead(0) * (3.3/1024.0) * mScale + mOffset;
+    double measurement = analogRead(0) * (3.2/1024.0) * mScale + mOffset;
     
     // Cheap JSON
     String output = "{\"mean\": ";
@@ -878,8 +878,6 @@ class MAX31855Monitor : public DCThread {
 
     virtual void loop()
     { 
-
-
       // Manage the polling, connection, etc
       DCThread::loop();
     }
