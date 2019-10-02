@@ -39,7 +39,7 @@ Another (higher resolution) thermocouple reader. `MCP9600Monitor` class is used 
 
 ## Atmospheric Sensors
 
-### DHT22 / A
+### DHT22 / AM2302
 A cheap sensor for measuring the ambient temperature and relative humidity.
 
  There is a `DHTTemperatureMonitor` class for dealing with these. 

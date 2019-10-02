@@ -12,7 +12,7 @@ The instructions for setting up the services, and sensor modules can be found be
 
 ## Features
 - This firmware has drivers for a reasonable number of [sensors](doc/Sensors.md).
-- Data collection is using text over MQTT, which makes combining data from other [sources](doc\usb_device_monitor.py) straightforward.
+- Data collection is using text over MQTT, which makes combining data from other [sources](doc/usb_device_monitor.py) straightforward.
 - The network connection of each module is configured via web-browser, so they don't have to be reprogrammed if the wifi changes.
 - Each module can be accessed by web-browser, to check it's status, see any error messages, or update the firmware.
 
@@ -40,13 +40,13 @@ The instructions for setting up the services, and sensor modules can be found be
 
 5. Open `src/sensor_config.h`. Give the `node_name` variable a meaningful parameter. Each name should be unique to each sensor node, and be meaningful. One can then add a list of monitoring classes. For now, we can start off by setting up a simple analog monitor:
 
-'''
+```
 const char * node_name = "analog_example_monitor";
 
 std::vector<DCThread *> collectors = {
     new AnalogMonitor ("sensor/example/analog"),
 };
-'''
+```
 
 The parameter here is the MQTT topic to which the data will be posted. One can think of this as the monitored signal's name.
 
