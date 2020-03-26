@@ -1010,7 +1010,13 @@ class DigitalMonitor : public DCThread
 
 };
 
+
+
+#if defined(ESP8266)
 #include <SoftwareSerial.h>
+
+
+
 /**
  * Monitor a serial device. This class provides a way of sending and receiving serial commands, making it capable of
  * talking to TTL serial devices, or with the help of adaptors, RS232 and GPIB devices. GPIB requires a bit more effort,
@@ -1074,11 +1080,11 @@ class SerialMonitor : public DCThread
 {
   private:
     std::vector<std::function<void(SoftwareSerial &, MQTTClient &, SerialMonitor &)>> mRequests;
-    std::function<void(SoftwareSerial &)> mInitFunc;
     SoftwareSerial mConnection;
     String mInput;
     char mWaitingFor;
     unsigned int mRequestStep;
+    std::function<void(SoftwareSerial &)> mInitFunc;
     unsigned long mBaud;
 
   public:
@@ -1092,7 +1098,7 @@ class SerialMonitor : public DCThread
                     unsigned long baud = 19200
                   )
       : DCThread(name, period), mRequests(request_funcs),
-      mConnection(rx_pin, tx_pin, false, 256),
+      mConnection(rx_pin, tx_pin, false),
       mInput(), mWaitingFor('\0'), mRequestStep(0),
       mInitFunc(initFunc),
       mBaud(baud)
@@ -1157,6 +1163,8 @@ class SerialMonitor : public DCThread
 
 };
 
+#endif
+
 
 #include <Adafruit_ADS1015.h>
 /**
@@ -1185,7 +1193,7 @@ class ADS1115Monitor : public DCThread {
                     adsGain_t gain = GAIN_TWOTHIRDS
 
                   )
-      : DCThread(topics[0], period), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain), mDevice(ADS1015_ADDRESS + address_offset)
+      : DCThread(topics[0], period), mDevice(ADS1015_ADDRESS + address_offset), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain)
     {
     } 
 
@@ -1258,15 +1266,15 @@ class ADS1115MonitorOverSampled : public DCThread {
     unsigned int mSDA;
     unsigned int mSDC;
 
+    adsGain_t mGain;
+    
     unsigned int mSamples;
     unsigned int mSampleCounter;
 
     std::vector<double> mMean;
-    std::vector<double> mMin;
     std::vector<double> mMax;
-
-    adsGain_t mGain;
-
+    std::vector<double> mMin;
+    
   public:
     ADS1115MonitorOverSampled(
                     std::vector<const char *> topics,
@@ -1277,7 +1285,7 @@ class ADS1115MonitorOverSampled : public DCThread {
                     adsGain_t gain = GAIN_TWOTHIRDS,
                     unsigned int oversample_rate = 20
                   )
-      : DCThread(topics[0], period/oversample_rate), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain), mDevice(ADS1015_ADDRESS + address_offset),
+      : DCThread(topics[0], period/oversample_rate), mDevice(ADS1015_ADDRESS + address_offset), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain),
       mSamples(oversample_rate), mSampleCounter(0), mMean(topics.size(), 0), mMax(topics.size(), NAN), mMin(topics.size(), NAN)
     {
     } 
@@ -1493,7 +1501,7 @@ class MLX90393Monitor : public DCThread {
 
       int register_value = (osr2 << 11) | (res_xyz << 5) | (dig_filt << 2) | (osr);
       char tx[] = {MLX90393_REG_WR, (register_value >> 8),  (register_value & 0xFF), MLX90393_CONF3};
-      Wire.write(tx, sizeof(tx));
+      Wire.write((uint8_t *) tx, sizeof(tx));
     }
 
     virtual void poll()

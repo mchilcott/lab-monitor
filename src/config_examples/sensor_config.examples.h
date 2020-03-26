@@ -28,11 +28,15 @@ std::vector<DCThread *> collectors = {
   // new DS18B20MultiMonitor(
   //   {
   //     std::make_pair(0, "sensor/power/mosfets/main/0/temperature"),
-  //     std::make_pair(1, "sensor/power/mosfets/main/1/temperature"),
-  //     std::make_pair(2, "sensor/power/mosfets/main/2/temperature"),
-  //     std::make_pair(3, "sensor/power/mosfets/main/3/temperature"),
-  //     std::make_pair(4, "sensor/power/mosfets/main/4/temperature"),
-  //     std::make_pair(5, "sensor/power/mosfets/main/5/temperature")
+  //     std::make_pair(1, "sensor/power/mosfets/shunt/bank1/temperature"),
+  //     std::make_pair(2, "sensor/power/mosfets/main/1/temperature"),
+  //     std::make_pair(3, "sensor/power/mosfets/main/2/temperature"),
+  //     std::make_pair(4, "sensor/power/mosfets/main/3/temperature"),
+  //     std::make_pair(5, "sensor/power/mosfets/main/4/temperature"),
+  //     std::make_pair(6, "sensor/power/mosfets/main/5/temperature"),
+  //     std::make_pair(7, "sensor/power/mosfets/transfer_switch/temperature"),
+  //     std::make_pair(8, "sensor/power/mosfets/shunt/bank2/temperature"),
+  //     std::make_pair(9, "sensor/power/mosfets/hh_switch/temperature")
   //   }
   // )
   //

@@ -116,7 +116,8 @@ class DummyThread : public Thread {
 };
 
 #include <MQTT.h>
-#include <ESP8266WiFi.h>
+#include "ESPIncludes.h"
+
 
 /**
  * A DCThread (Data Collection Thread) with an MQTT object which the thread relies on.
@@ -157,7 +158,7 @@ class DCThread : public Thread {
    : Thread(), mClient(), mTopic(SensorTopic),  mPeriod(period), mLastMillis(millis()), mInit(false)
     {
       String name = "MonitorNode";
-      name += String(ESP.getChipId(), HEX);
+      name += String(getChipId(), HEX);
       
       name += ": ";
       name += mTopic;
@@ -445,10 +446,10 @@ class DigitalOutput : public ControlThread {
  */
 class HomieThread : public ControlThread {
     private:
+        String mNodeName;
         String mTopicBase;
         String mLabel;
         String mStatusTopic;
-        String mNodeName;
         std::vector<DCThread *> &mCollectors;
     public:
     HomieThread(
@@ -456,13 +457,13 @@ class HomieThread : public ControlThread {
            std::vector<DCThread *> &collectors,
            const char *basetopic = "status/",
            unsigned int period = 60000
-    ) : mNodeName(node_name), ControlThread(basetopic, period), mCollectors(collectors)
+    ) :  ControlThread(basetopic, period), mNodeName(node_name), mCollectors(collectors)
     {
         mTopicBase = String(basetopic);
         
         mLabel = String(node_name);
         
-        mTopicBase += String(ESP.getChipId(), HEX);
+        mTopicBase += String(getChipId(), HEX);
         mTopicBase += "/";
         mTopic = mTopicBase.c_str();
         
@@ -471,7 +472,7 @@ class HomieThread : public ControlThread {
         mClient.setWill(mStatusTopic.c_str(), "lost");
         
         String label =" Node:";
-        label += String(ESP.getChipId(), HEX);
+        label += String(getChipId(), HEX);
         label += ":";
         label += node_name;
         mClientName = label;
@@ -487,18 +488,18 @@ class HomieThread : public ControlThread {
         mClient.publish(mTopicBase + "$type", "MonitoringNode");
         mClient.publish(mTopicBase + "$properties", "");
 
-        mClient.publish(mTopicBase + "$hostname", wifi_station_get_hostname());
-
+        mClient.publish(mTopicBase + "$hostname", hostname());
 
         mClient.publish(mTopicBase + "$localip", WiFi.localIP().toString());
         mClient.publish(mTopicBase + "$mac", WiFi.macAddress());
         mClient.publish(mTopicBase + "$stats/rssi", String() + WiFi.RSSI());
         mClient.publish(mTopicBase + "$stats/interval", String() + (mPeriod/1000.0));
 
-        mClient.publish(mTopicBase + "$stats/uptime", String()+ (micros64()/1e6));
+        mClient.publish(mTopicBase + "$stats/uptime", String()+ uptime());
         mClient.publish(mTopicBase + "$stats/freeheap", String() = ESP.getFreeHeap());
+        #ifdef ESP8266
         mClient.publish(mTopicBase + "$stats/heapfragment", String() = ESP.getHeapFragmentation());
-    
+        #endif
         // Build a string with a list of the currently monitored signals.
         String node_str = "";
         for (auto it = mCollectors.begin(); it != mCollectors.end(); ++it)

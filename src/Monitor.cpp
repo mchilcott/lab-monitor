@@ -1,7 +1,6 @@
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPUpdateServer.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
+
+#include "ESPIncludes.h"
+
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <WiFiManager.h>
@@ -45,19 +44,16 @@ void saveConfigCallback () {
 /*
  * Some stuff for firmware updating
  */
-const char* host = wifi_station_get_hostname();
+const char* host = hostname();
 const char* update_path = "/firmware";
 
-ESP8266WebServer httpServer(80);
-ESP8266HTTPUpdateServer httpUpdater;
+WebServer httpServer(80);
+UpdateServer httpUpdater;
 
 void setup() {
   
   Serial.begin(115200);
   Serial.println("Booting");
-  
-  Serial.print("Reset Reason: ");
-  Serial.println(ESP.getResetReason());
 
   ///////////////////////////////////////////////////////////
   // Read configuration from Flash
@@ -205,11 +201,12 @@ void setup() {
     Serial.println("Unable to connect to MQTT");
     wifiManager.resetSettings();
     delay(500);
-    ESP.reset();
+    restart();
     //WiFiManagerParameter custom_text("<h2>Unable to connect to MQTT</h2>");
     //wifiManager.addParameter(&custom_text);
     //wifiManager.startConfigPortal();
   }
+
 
   // Send some data to the server. This is very badly based on the homie convention
 
@@ -229,6 +226,7 @@ void setup() {
 }
 
 void loop() {
+  MDNS.update();
   httpServer.handleClient();
   tm.handle();
 }
