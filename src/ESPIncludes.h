@@ -20,6 +20,9 @@ typedef ESP8266HTTPUpdateServer UpdateServer;
 #include <Update.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
+#include <SPIFFS.h>
+
+#include <HTTPUpdateServer.h>
 
 uint32_t getChipId() {return ESP.getEfuseMac() && 0x00FFFFFF;}
 
@@ -27,7 +30,7 @@ void restart() {ESP.restart();}
 
 float uptime() {return 0.0;}
 const char * hostname() {return "NOT IMPLEMENTED";}
-#include <Wire.h>
-TwoWire::TwoWire(): TwoWire::TwoWire(0) {}
+
+typedef HTTPUpdateServer UpdateServer;
 
 #endif

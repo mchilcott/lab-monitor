@@ -3,7 +3,7 @@
 
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-#include <WiFiManager.h>
+#include <AutoConnect.h>
 #include <FS.h>
 #include <ArduinoJson.h>
 
@@ -45,137 +45,150 @@ void saveConfigCallback () {
  * Some stuff for firmware updating
  */
 const char* host = hostname();
+
 const char* update_path = "/firmware";
 
 WebServer httpServer(80);
-UpdateServer httpUpdater;
+AutoConnect Portal(httpServer);
 
-void setup() {
-  
-  Serial.begin(115200);
-  Serial.println("Booting");
+UpdateServer httpUpdate;
+AutoConnectAux updater(update_path, "UPDATE");
 
-  ///////////////////////////////////////////////////////////
-  // Read configuration from Flash
-  Serial.println("mounting FS...");
+AutoConnectAux statusPage("/status", "Device Status");
 
-  if (SPIFFS.begin()) {
-    Serial.println("mounted file system");
-    if (SPIFFS.exists("/config.json")) {
-      // File exists, reading and loading
-      Serial.println("reading config file");
-      File configFile = SPIFFS.open("/config.json", "r");
-      if (configFile) {
-        Serial.println("opened config file");
-        size_t size = configFile.size();
-        // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
+AutoConnectAux mqttConfig;
 
-        configFile.readBytes(buf.get(), size);
-        DynamicJsonBuffer jsonBuffer;
-        JsonObject& json = jsonBuffer.parseObject(buf.get());
-        json.printTo(Serial);
-        if (json.success()) {
-          Serial.println("\nparsed json");
-
-          strncpy(MQTTServer, json["mqtt_server"], sizeof(MQTTServer));
-          strncpy(MQTTPort, json["mqtt_port"], sizeof(MQTTPort));
-          // Make sure we have null terminated strings (This is thoroughly paranoid)
-          MQTTServer[sizeof(MQTTServer)-1] = MQTTPort[sizeof(MQTTPort)-1] = '\0';
-
-        } else {
-          Serial.println("failed to load json config");
-        }
-        configFile.close();
-      }
+static const char MQTT_JSON[] PROGMEM = R"(
+{
+  "name" : "MQTTConfig",
+  "uri" : "/mqtt",
+  "menu" : true,
+  "element" : [
+    {
+      "name": "hostname",
+      "type": "ACInput",
+      "label": "Server Hostname",
+    },
+    {
+      "name": "port",
+      "type": "ACInput",
+      "label": "Port",
+      "placeholder": "1883"
+    },
+    {
+      "name": "user",
+      "type": "ACInput",
+      "label": "Username",
+    },
+    {
+      "name": "pass",
+      "type": "ACInput",
+      "label": "Password"
+    },
+    {
+      "name": "send",
+      "type": "ACSubmit",
+      "uri": "/mqtt_save"
     }
-  } else {
-    Serial.println("failed to mount FS");
-  }
+  ]
+}
+)";
 
-  ///////////////////////////////////////////////////////////
-  // Use some magic to connect to another network if things go wrong.
-  // See lib/WiFiManager/README.md (also leave room for a null byte at end of string)
-  WiFiManagerParameter custom_mqtt_server("server", "MQTT server", MQTTServer, sizeof(MQTTServer)-1);
-  WiFiManagerParameter custom_mqtt_port("port", "MQTT port", MQTTPort, sizeof(MQTTPort)-1);
 
-  WiFiManager wifiManager;
-  wifiManager.setSaveConfigCallback(saveConfigCallback);
-  wifiManager.addParameter(&custom_mqtt_server);
-  wifiManager.addParameter(&custom_mqtt_port);
-  wifiManager.autoConnect();
-  WiFi.setAutoReconnect(true);
+String mqttSave(AutoConnectAux& aux, PageArgument& args){
+  SPIFFS.begin();
+  fs::File param = SPIFFS.open("/params", "w");
 
-  ///////////////////////////////////////////////////////////
-  // Deal with parameters if they are updated
-  strncpy(MQTTServer, custom_mqtt_server.getValue(), sizeof(MQTTServer));
-  strncpy(MQTTPort, custom_mqtt_port.getValue(), sizeof(MQTTPort));
-  // Make sure we have null terminated strings (This is thoroughly paranoid)
-  MQTTServer[sizeof(MQTTServer)-1] = MQTTPort[sizeof(MQTTPort)-1] = '\0';
+  AutoConnectAux* hello = Portal.aux(Portal.where());
 
-  if (shouldSaveConfig) {
-      Serial.println("saving config");
-      DynamicJsonBuffer jsonBuffer;
-      JsonObject& json = jsonBuffer.createObject();
-      json["mqtt_server"] = MQTTServer;
-      json["mqtt_port"] = MQTTPort;
-      File configFile = SPIFFS.open("/config.json", "w");
-      if (!configFile) {
-        Serial.println("failed to open config file for writing");
-      }
+  // Save elements as the parameters.
+  hello->saveElement(param, { "hostname", "port", "user", "pass" });
 
-      json.printTo(Serial);
-      json.printTo(configFile);
-      configFile.close();
-      //end save
-  }
+  // Close a parameter file.
+  param.close();
+  SPIFFS.end();
+
+  return String("");
+}
+
+void mqttLoad(){
+  SPIFFS.begin();
+  fs::File param = SPIFFS.open("/params", "w");
   
-  ///////////////////////////////////////////////////////////
-  // Setup Web-based firmware updates and info
-  MDNS.begin(host);
-  
-  // TODO: Add some more info about current measurements
-  httpUpdater.setup(&httpServer, update_path, update_username, update_password);
-  httpServer.on("/", []() {
-    String msg = "This Node (";
-    msg += node_name;
-    msg += " @ ";
-    msg += host;
-    msg += ") is alive\n\n";
-    msg += "Services: ";
-    for (auto it = collectors.begin(); it != collectors.end(); ++it)
-      {
-        if (it != collectors.begin())
-          msg += ", ";
-        msg += (*it)->topic();
-      }
+  // If the file doesn't exist, stop here
+  if (!param) return;
 
-    msg += "\n\nLogged Messages \n\n";
+  mqttConfig.loadElement(param, { "hostname", "port", "user", "pass" });
+
+  param.close();
+  SPIFFS.end();
+}
+
+void statusFunc() {
+  String msg = "This Node (";
+  msg += node_name;
+  msg += " @ ";
+  msg += hostname();
+  msg += ") is alive\n\n";
+  msg += "Services: ";
+  for (auto it = collectors.begin(); it != collectors.end(); ++it)
+    {
+      if (it != collectors.begin())
+        msg += ", ";
+      msg += (*it)->topic();
+    }
+
+  msg += "\n\nLogged Messages \n\n";
     
-    for (int i = 0; i < gLogCount && i < LOG_ENTRIES; ++i)
+  for (int i = 0; i < gLogCount && i < LOG_ENTRIES; ++i)
     {
       char ind = (gLogNext + LOG_ENTRIES - i - 1) % LOG_ENTRIES;
       msg += gLogBuffer[ind];
       msg += '\n';
     }
-    httpServer.send(200, "text/plain", msg);
-  });
-  httpServer.begin();
+
+  httpServer.send(200, "text/plain", msg);
+}
+
+void setup() {
+
+  delay(1000);
+  Serial.begin(115200);
+  write_log("Booting");
   
+  // Get the portal connecting
+  httpServer.on("/status", statusFunc);
+  httpUpdate.setup(&httpServer, update_path, update_username, update_password);
+
+  mqttConfig.load(MQTT_JSON);
+  Portal.on(String("/mqtt_save"), mqttSave);
+  mqttLoad();
+  
+  
+  // Custom Pages in the portal
+  Portal.join(statusPage);
+  Portal.join(mqttConfig);
+  Portal.join(updater);
+  
+  if (Portal.begin()) {
+    write_log(("WiFi connected: " + WiFi.localIP().toString()).c_str());
+  }
+  
+  ///////////////////////////////////////////////////////////
+  // MDNS Broadcasr
+  MDNS.begin(host); 
   MDNS.addService("http", "tcp", 80);
 
-  ///////////////////////////////////////////////////////////
-  // Print some useful info
-  Serial.println("Ready");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("Hostname: ");
-  Serial.println(host);
 
   ///////////////////////////////////////////////////////////
   // Notify the MQTT server of our existance
- 
-  homie.beginMQTT(MQTTServer, atoi(MQTTPort), mqtt_username, mqtt_password);
+
+  MQTTServer =     mqttConfig.getElement<AutoConnectText>("hostname").value.c_str();
+  MQTTPort =       mqttConfig.getElement<AutoConnectText>("port").value.c_str();
+  mqtt_username =  mqttConfig.getElement<AutoConnectText>("user").value.c_str();
+  mqtt_password =  mqttConfig.getElement<AutoConnectText>("pass").value.c_str();
+  
+  homie.beginMQTT(MQTTServer.c_str(), atoi(MQTTPort.c_str()), mqtt_username.c_str(), mqtt_password.c_str());
   // Number of connection attempts:
   int n_attempts = 10;
   bool connected = false;
@@ -196,23 +209,17 @@ void setup() {
 
   if (!connected)
   {
-    // Still couldn't connect - start up the config portal to attempt to get things going
-    // This very hacky, because the sensible way didn't seem to work
-    Serial.println("Unable to connect to MQTT");
-    wifiManager.resetSettings();
-    delay(500);
-    restart();
-    //WiFiManagerParameter custom_text("<h2>Unable to connect to MQTT</h2>");
-    //wifiManager.addParameter(&custom_text);
-    //wifiManager.startConfigPortal();
+    // Still couldn't connect - Don't bother starting up
+    write_log("Unable to connect to MQTT");
+    while(true){
+      // Try again once reset
+      Portal.handleClient();
+    }
   }
 
-
   // Send some data to the server. This is very badly based on the homie convention
-
   homie.publish_status("init");
   homie.poll();
-
   tm.add(&homie);
 
   ///////////////////////////////////////////////////////////
@@ -220,13 +227,12 @@ void setup() {
   for (auto it = collectors.begin(); it != collectors.end(); ++it)
   {
     tm.add(*it);
-    (*it)->beginMQTT(MQTTServer, atoi(MQTTPort), mqtt_username, mqtt_password);
+    (*it)->beginMQTT(MQTTServer.c_str(), atoi(MQTTPort.c_str()), mqtt_username.c_str(), mqtt_password.c_str());
   }
   homie.publish_status("ready");
 }
 
 void loop() {
-  MDNS.update();
-  httpServer.handleClient();
+  Portal.handleClient();
   tm.handle();
 }

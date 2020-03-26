@@ -896,7 +896,6 @@ class MCP9600Monitor : public DCThread {
   private:
     const char * mTopic;
 
-    TwoWire mWire;
     MCP9600_ThemocoupleType mType;
     unsigned int mI2C_addr;
     
@@ -911,14 +910,14 @@ class MCP9600Monitor : public DCThread {
                     unsigned int i2c_sdc = 5,  // NodeMCU D1.
                     unsigned int i2c_addr = MCP9600_I2CADDR_DEFAULT //Address of the remote device
                   )
-      : DCThread(topic, period), mTopic(topic), mWire(), mType(type), mI2C_addr(i2c_addr),  mTherm()
+      : DCThread(topic, period), mTopic(topic), mType(type), mI2C_addr(i2c_addr),  mTherm()
     {
-        mWire.begin(i2c_sda, i2c_sdc);
+        Wire.begin(i2c_sda, i2c_sdc);
     }
 
     void init()
     {
-        if (! mTherm.begin(mI2C_addr, &mWire)) {
+        if (! mTherm.begin(mI2C_addr, &Wire)) {
             write_log("Sensor not found. Check wiring!");
         }
         mTherm.setADCresolution(MCP9600_ADCRESOLUTION_18);
