@@ -4,7 +4,7 @@
 // Configure this monitor node below
 //////////////////////////////////////////
 
-const char * node_name = "FET_bank_monitor";
+const char * node_name = "test_monitor";
 
 std::vector<DCThread *> collectors = {
 

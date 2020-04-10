@@ -6,10 +6,10 @@
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266mDNS.h>
 
-uint32_t getChipId() {return ESP.getChipId();}
-void restart() {ESP.reset();}
-float uptime () {return micros64()/1e6;}
-const char * hostname() {return wifi_station_get_hostname();}
+inline uint32_t getChipId() {return ESP.getChipId();}
+inline void restart() {ESP.reset();}
+inline float uptime () {return micros64()/1e6;}
+inline const char * hostname() {return wifi_station_get_hostname();}
 
 typedef ESP8266WebServer WebServer;
 typedef ESP8266HTTPUpdateServer UpdateServer;
@@ -24,12 +24,10 @@ typedef ESP8266HTTPUpdateServer UpdateServer;
 
 #include <HTTPUpdateServer.h>
 
-uint32_t getChipId() {return ESP.getEfuseMac() && 0x00FFFFFF;}
-
-void restart() {ESP.restart();}
-
-float uptime() {return 0.0;}
-const char * hostname() {return "NOT IMPLEMENTED";}
+inline uint32_t getChipId() {return ESP.getEfuseMac() && 0x00FFFFFF;}
+inline void restart() {ESP.restart();}
+inline float uptime() {return 0.0;}
+const char * hostname();
 
 typedef HTTPUpdateServer UpdateServer;
 

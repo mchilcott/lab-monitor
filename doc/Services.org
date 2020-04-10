@@ -44,11 +44,6 @@
 
 ** The Old Way, or playing with individual services
 
-  The following examples show the main ideas, but the docker commands in ~SpinUp.sh~ also include the command 
-  #+BEGIN_EXAMPLE
-    --restart always
-  #+END_EXAMPLE
-  which forces the docker service to restart the container of the service if it breaks down.
 ** Mosquitto
    Mosquitto runs a MQTT service on port 1883, with an HTTP bridge on
    9001, that we don't currently use.

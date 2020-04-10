@@ -6,12 +6,20 @@
 
 const char * node_name = "power_supply_monitor";
 
+SoftwareSerial serial_conn(
+            14, // rx pin - D5
+            12, // tx pin - D6,
+            false
+         );
+
 std::vector<DCThread *> collectors = {
 
   new DHTTemperatureMonitor("sensor/power/cabinet", 30000, 0, 22),
+  
   new SerialMonitor(
     // Init function
     [](SoftwareSerial &conn){
+      conn.begin(19200);
       conn.write("++auto 1\n");
       conn.write("++read_tmo_ms 200\n");
     },

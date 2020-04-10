@@ -24,10 +24,6 @@ ThreadManager tm;
 std::map<MQTTClient *, std::function<void(String &, String &)>> MQTTCallbackBroker::msCallbacks;
 DSM501A_Monitor * DSM501A_Monitor::myself;
 
-char gLogBuffer[LOG_ENTRIES][LOG_STRING_SIZE];
-char gLogCount (0);
-char gLogNext (0);
-
 
 HomieThread homie (node_name, collectors);
 
@@ -50,104 +46,125 @@ const char* update_path = "/firmware";
 
 WebServer httpServer(80);
 AutoConnect Portal(httpServer);
+AutoConnectConfig PortalConfig;
 
 UpdateServer httpUpdate;
-AutoConnectAux updater(update_path, "UPDATE");
+AutoConnectAux updater(update_path, "Update Firmware");
 
-AutoConnectAux statusPage("/status", "Device Status");
-
-AutoConnectAux mqttConfig;
-
-static const char MQTT_JSON[] PROGMEM = R"(
-{
-  "name" : "MQTTConfig",
-  "uri" : "/mqtt",
-  "menu" : true,
-  "element" : [
-    {
-      "name": "hostname",
-      "type": "ACInput",
-      "label": "Server Hostname",
-    },
-    {
-      "name": "port",
-      "type": "ACInput",
-      "label": "Port",
-      "placeholder": "1883"
-    },
-    {
-      "name": "user",
-      "type": "ACInput",
-      "label": "Username",
-    },
-    {
-      "name": "pass",
-      "type": "ACInput",
-      "label": "Password"
-    },
-    {
-      "name": "send",
-      "type": "ACSubmit",
-      "uri": "/mqtt_save"
-    }
-  ]
-}
-)";
+const char * param_file = "/param.json";
+const char * MQTT_path = "/mqtt_setting";
+const char * MQTTSave_path = "/mqtt_save";
 
 
-String mqttSave(AutoConnectAux& aux, PageArgument& args){
+String  serverName;
+int     serverPort;
+String  userName;
+String  userPass;
+
+String loadParams(AutoConnectAux& aux, PageArgument& args) {
+  (void)(args);
   SPIFFS.begin();
-  fs::File param = SPIFFS.open("/params", "w");
-
-  AutoConnectAux* hello = Portal.aux(Portal.where());
-
-  // Save elements as the parameters.
-  hello->saveElement(param, { "hostname", "port", "user", "pass" });
-
-  // Close a parameter file.
-  param.close();
+  File param = SPIFFS.open(param_file, "r");
+  if (param)
+    {
+      aux.loadElement(param);
+      param.close();
+    }
+  else
+    {
+      write_log("Failed to open param file");
+    }
   SPIFFS.end();
-
   return String("");
 }
 
-void mqttLoad(){
+String saveParams(AutoConnectAux& aux, PageArgument& args) {
   SPIFFS.begin();
-  fs::File param = SPIFFS.open("/params", "w");
+  serverName = args.arg("mqttserver");
+  serverName.trim();
+
+  String tmp = args.arg("port");
+  tmp.trim();
+  serverPort = tmp.toInt();
+
+  userName = args.arg("user");
+  userName.trim();
   
-  // If the file doesn't exist, stop here
-  if (!param) return;
+  userPass = args.arg("pass");
+  userPass.trim();
 
-  mqttConfig.loadElement(param, { "hostname", "port", "user", "pass" });
-
+  
+  // The entered value is owned by AutoConnectAux of /mqtt_setting.
+  // To retrieve the elements of /mqtt_setting, it is necessary to get
+  // the AutoConnectAux object of /mqtt_setting.
+  File param = SPIFFS.open(param_file, "w");
+  Portal.aux(MQTT_path)->saveElement(param, { "mqttserver", "port", "user", "pass"});
   param.close();
+
+  // Echo back saved parameters to AutoConnectAux page.
+  AutoConnectText&  echo = aux["parameters"].as<AutoConnectText>();
+  echo.value = "Server: " + serverName + "<br>";
+  echo.value += "Port: " + String(serverPort) + "<br>";
+  echo.value += "Username: " + userName + "<br>";
+  echo.value += "Password: " + userPass + "<br>";
   SPIFFS.end();
+  return String("");
 }
 
+// Load AutoConnectAux JSON from SPIFFS.
+bool loadAux(const String auxName) {
+  SPIFFS.begin();
+  bool  rc = false;
+  String  fn = auxName + ".json";
+  File fs = SPIFFS.open(fn.c_str(), "r");
+  if (fs) {
+    rc = Portal.load(fs);
+    fs.close();
+  }
+  else
+    write_log("SPIFFS open failed: " + fn);
+  SPIFFS.end();
+  return rc;
+}
+
+
 void statusFunc() {
-  String msg = "This Node (";
-  msg += node_name;
-  msg += " @ ";
-  msg += hostname();
-  msg += ") is alive\n\n";
-  msg += "Services: ";
+  String page = PSTR(
+                     "<html>"
+                       "<head>"
+                         "<title>Monitor Node Status</title>"
+                         "<style type=\"text/css\">body {font-family: sans-serif;}</style>"
+                       "</head>"
+                     "<body>"
+                     "<p style=\"text-align: right;\">" AUTOCONNECT_LINK(BAR_32) "</p>"
+                     );
+  
+  page += "<h1>This Node (";
+  page += node_name;
+  page += " @ ";
+  page += hostname();
+  page += ") is alive</h1>";
+  page += "<h2>Services</h2><ul>";
   for (auto it = collectors.begin(); it != collectors.end(); ++it)
     {
-      if (it != collectors.begin())
-        msg += ", ";
-      msg += (*it)->topic();
+      page += "<li>";
+      page += (*it)->topic();
+      page += "</li>";
     }
 
-  msg += "\n\nLogged Messages \n\n";
+  page += "</ul><h2>Logged Messages</h2><ul>";
     
   for (int i = 0; i < gLogCount && i < LOG_ENTRIES; ++i)
     {
+      page += "<li>";
       char ind = (gLogNext + LOG_ENTRIES - i - 1) % LOG_ENTRIES;
-      msg += gLogBuffer[ind];
-      msg += '\n';
+      page += gLogBuffer[ind];
+      page += "</li>";
     }
 
-  httpServer.send(200, "text/plain", msg);
+  page += String(F("</ul></body></html>"));
+  
+  httpServer.send(200, "text/html", page);
 }
 
 void setup() {
@@ -157,21 +174,54 @@ void setup() {
   write_log("Booting");
   
   // Get the portal connecting
-  httpServer.on("/status", statusFunc);
+
+  PortalConfig.apid = String("Setup-") + hostname();
+  PortalConfig.psk  = "monitornode";
+  PortalConfig.title ="Node Config";
+  Portal.config(PortalConfig);
+
+  
+  loadAux(MQTT_path);
+  loadAux(MQTTSave_path);
+  Portal.on(MQTT_path, loadParams);
+  Portal.on(MQTTSave_path, saveParams);
+  
+  AutoConnectAux* setting = Portal.aux(MQTT_path);
+  if (setting) {
+    PageArgument  args;
+    AutoConnectAux& mqtt_setting = *setting;
+    loadParams(mqtt_setting, args);
+    
+    serverName = mqtt_setting["mqttserver"].as<AutoConnectInput>().value;
+    serverName.trim();
+    
+    String tmp = mqtt_setting["port"].as<AutoConnectInput>().value;
+    tmp.trim();
+    serverPort = tmp.toInt();
+    
+    userName = mqtt_setting["user"].as<AutoConnectInput>().value;
+    userName.trim();
+  
+    userPass = mqtt_setting["pass"].as<AutoConnectInput>().value;
+    userPass.trim();
+  } else {
+    write_log("aux. load error");
+  }
+  
+  
+  httpServer.on("/", statusFunc);
   httpUpdate.setup(&httpServer, update_path, update_username, update_password);
 
-  mqttConfig.load(MQTT_JSON);
-  Portal.on(String("/mqtt_save"), mqttSave);
-  mqttLoad();
   
   
   // Custom Pages in the portal
-  Portal.join(statusPage);
-  Portal.join(mqttConfig);
   Portal.join(updater);
+  //Portal.join(mqttConfig);
+  
+
   
   if (Portal.begin()) {
-    write_log(("WiFi connected: " + WiFi.localIP().toString()).c_str());
+    write_log("WiFi connected: " + WiFi.localIP().toString());
   }
   
   ///////////////////////////////////////////////////////////
@@ -182,15 +232,10 @@ void setup() {
 
   ///////////////////////////////////////////////////////////
   // Notify the MQTT server of our existance
-
-  MQTTServer =     mqttConfig.getElement<AutoConnectText>("hostname").value.c_str();
-  MQTTPort =       mqttConfig.getElement<AutoConnectText>("port").value.c_str();
-  mqtt_username =  mqttConfig.getElement<AutoConnectText>("user").value.c_str();
-  mqtt_password =  mqttConfig.getElement<AutoConnectText>("pass").value.c_str();
   
-  homie.beginMQTT(MQTTServer.c_str(), atoi(MQTTPort.c_str()), mqtt_username.c_str(), mqtt_password.c_str());
+  homie.beginMQTT(serverName.c_str(), serverPort, userName.c_str(), userPass.c_str());
   // Number of connection attempts:
-  int n_attempts = 10;
+  int n_attempts = 4;
   bool connected = false;
 
   for (int i = 0; i < n_attempts; ++i)
@@ -200,17 +245,14 @@ void setup() {
       connected = true;
       break;
     }
-    Serial.print(MQTTServer);
-    Serial.print(":");
-    Serial.print(MQTTPort);
-    Serial.println(" - Failed MQTT connection attempt.");
-    delay(1000);
+    write_log(serverName + ":" + serverPort + " - Failed MQTT connection attempt.");
+    delay(3000);
   }
 
   if (!connected)
   {
     // Still couldn't connect - Don't bother starting up
-    write_log("Unable to connect to MQTT");
+    write_log("Unable to connect to MQTT - Please check configuration");
     while(true){
       // Try again once reset
       Portal.handleClient();
@@ -227,7 +269,7 @@ void setup() {
   for (auto it = collectors.begin(); it != collectors.end(); ++it)
   {
     tm.add(*it);
-    (*it)->beginMQTT(MQTTServer.c_str(), atoi(MQTTPort.c_str()), mqtt_username.c_str(), mqtt_password.c_str());
+    (*it)->beginMQTT(serverName.c_str(), serverPort, userName.c_str(), userPass.c_str());
   }
   homie.publish_status("ready");
 }
