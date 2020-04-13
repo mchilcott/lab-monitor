@@ -28,11 +28,15 @@ std::vector<DCThread *> collectors = {
   // new DS18B20MultiMonitor(
   //   {
   //     std::make_pair(0, "sensor/power/mosfets/main/0/temperature"),
-  //     std::make_pair(1, "sensor/power/mosfets/main/1/temperature"),
-  //     std::make_pair(2, "sensor/power/mosfets/main/2/temperature"),
-  //     std::make_pair(3, "sensor/power/mosfets/main/3/temperature"),
-  //     std::make_pair(4, "sensor/power/mosfets/main/4/temperature"),
-  //     std::make_pair(5, "sensor/power/mosfets/main/5/temperature")
+  //     std::make_pair(1, "sensor/power/mosfets/shunt/bank1/temperature"),
+  //     std::make_pair(2, "sensor/power/mosfets/main/1/temperature"),
+  //     std::make_pair(3, "sensor/power/mosfets/main/2/temperature"),
+  //     std::make_pair(4, "sensor/power/mosfets/main/3/temperature"),
+  //     std::make_pair(5, "sensor/power/mosfets/main/4/temperature"),
+  //     std::make_pair(6, "sensor/power/mosfets/main/5/temperature"),
+  //     std::make_pair(7, "sensor/power/mosfets/transfer_switch/temperature"),
+  //     std::make_pair(8, "sensor/power/mosfets/shunt/bank2/temperature"),
+  //     std::make_pair(9, "sensor/power/mosfets/hh_switch/temperature")
   //   }
   // )
   //
@@ -94,32 +98,6 @@ std::vector<DCThread *> collectors = {
   //   }, "sensor/agilent_34401A/volts_ac"
   // )
 
-  // Monitor a DC voltage with a 34401A multimeter via GPIB. See the documentation for the SerialMonitor Class
-  // new SerialMonitor(
-  //   // Init function
-  //   [](SoftwareSerial &conn){
-  //     conn.write("++auto 1\n");
-  //     conn.write("++addr 2\r");
-  //     conn.write("++read_tmo_ms 3000\n");
-  //   },
-  //   // Series of requests
-  //   {
-  //     [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
-  //       conn.write("MEAS:VOLT:DC? 10,DEF\n");
-  //       mon.waitFor('\n');
-  //     },
-  //     [](SoftwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
-  //       String value = mon.read();
-  //       double num_value (0);
-  //       sscanf(value.c_str(), "%lf\r", &num_value);
-        
-  //       mqtt.publish(
-  //           "sensor/agilent_34401A/volts_dc",
-  //           String("{\"mean\": ") + String(num_value, 10) + ", \"units\": \"V\"}"
-  //         );
-  //      }
-  //   }, "sensor/agilent_34401A/volts_dc"
-  // )
 
 
 

@@ -2,12 +2,28 @@
 
 #include "NodeThreads.h"
 
+#ifdef ESP8266
+#define DEFAULT_SCALE (3.2/1024.0)
+
+const unsigned int SDA_default = 4; /// NodeMCU D2.
+const unsigned int SCL_default = 5;  /// NodeMCU D1.
+#elif defined(ESP32)
+#define DEFAULT_SCALE (1.0/3959.0)
+const unsigned int SDA_default = 21; /// ESP32 Default. We recommend leaving these as default for compatibility.
+const unsigned int SCL_default = 22;  /// ESP32 Default. We recommend leaving these as default for compatibility.
+#endif
+
+
+
+
+
 /**
  * Uses the onboard ADC to make measurements.
  * 
  * This class can be reconfigured to take a variety of measurements
  * 
- * Note that this class assumes the range on the ADC to be 3.3 V as per the NodeMCU boards.
+ * Note that this class assumes the range on the ADC to be 3.3 V as per the NodeMCU boards when using the ESP8266, and
+ * defaults to the 0-1 V range for the ESP32.
  */
 class AnalogMonitor : public DCThread
 {
@@ -17,6 +33,7 @@ class AnalogMonitor : public DCThread
   double mOffset;
   unsigned int mPeriod;
   const char * mUnits;
+  const unsigned char mPin;
   
  public:
   /**
@@ -29,6 +46,8 @@ class AnalogMonitor : public DCThread
     \f$
 
     The reported units of output are also configurable.
+    
+    Please note that the ADC on the ESP32 has some nasty non-linearities
 
     \param mgr Thread Manager to run this thread
     \param topic MQTT Topic to publish these measurements to
@@ -36,15 +55,17 @@ class AnalogMonitor : public DCThread
     \param scale A scale factor between input voltage and output data
     \param offset The zero offset of the data
     \param units The reported units of this measurement
+    \param pin Analog pin to monitor - only 0 available for ESP8266
    */
   AnalogMonitor(
                   const char * topic = "sensor/default/analongmon",
                   unsigned int period = 2000,
                   double scale = 1,
                   double offset = 0,
-                  const char * units = "V"
+                  const char * units = "V",
+                  const unsigned char pin = 0
                 )
-    : DCThread(topic, period), mScale(scale), mOffset(offset), mUnits(units)
+    : DCThread(topic, period), mScale(scale), mOffset(offset), mUnits(units), mPin(pin)
   {}
 
   /**
@@ -54,7 +75,7 @@ class AnalogMonitor : public DCThread
   {
 
     // Note the magic number to convert from number to volts
-    double measurement = analogRead(0) * (3.2/1024.0) * mScale + mOffset;
+    double measurement = analogRead(mPin) * DEFAULT_SCALE * mScale + mOffset;
     
     // Cheap JSON
     String output = "{\"mean\": ";
@@ -75,6 +96,8 @@ class AnalogMonitor : public DCThread
 
 /**
  * Monitor measurements from a single [DS18B20](https://datasheets.maximintegrated.com/en/ds/DS18B20.pdf) digital temperature sensor.
+ *
+ * We have found that the ESP8266 can be directly connected, but that the ESP32 generally needs a 4.7k resistor pulling up the data line to VCC.
  */
 class DS18B20Monitor : public DCThread {
   private:
@@ -896,7 +919,6 @@ class MCP9600Monitor : public DCThread {
   private:
     const char * mTopic;
 
-    TwoWire mWire;
     MCP9600_ThemocoupleType mType;
     unsigned int mI2C_addr;
     
@@ -911,14 +933,14 @@ class MCP9600Monitor : public DCThread {
                     unsigned int i2c_sdc = 5,  // NodeMCU D1.
                     unsigned int i2c_addr = MCP9600_I2CADDR_DEFAULT //Address of the remote device
                   )
-      : DCThread(topic, period), mTopic(topic), mWire(), mType(type), mI2C_addr(i2c_addr),  mTherm()
+      : DCThread(topic, period), mTopic(topic), mType(type), mI2C_addr(i2c_addr),  mTherm()
     {
-        mWire.begin(i2c_sda, i2c_sdc);
+        Wire.begin(i2c_sda, i2c_sdc);
     }
 
     void init()
     {
-        if (! mTherm.begin(mI2C_addr, &mWire)) {
+        if (! mTherm.begin(mI2C_addr, &Wire)) {
             write_log("Sensor not found. Check wiring!");
         }
         mTherm.setADCresolution(MCP9600_ADCRESOLUTION_18);
@@ -1010,7 +1032,17 @@ class DigitalMonitor : public DCThread
 
 };
 
+
+
+#if defined(ESP8266)
 #include <SoftwareSerial.h>
+typedef SoftwareSerial AuxSerial;
+#elif defined(ESP32)
+#include <HardwareSerial.h>
+typedef HardwareSerial AuxSerial;
+#endif
+
+
 /**
  * Monitor a serial device. This class provides a way of sending and receiving serial commands, making it capable of
  * talking to TTL serial devices, or with the help of adaptors, RS232 and GPIB devices. GPIB requires a bit more effort,
@@ -1034,11 +1066,26 @@ class DigitalMonitor : public DCThread
  * Note that the initFunc gives access to the SoftwareSerial, allowing you to configure your serial device. The request_funcs have access to the
  * SoftwareSerial (to issue measurement commands), the MQTTClient (to submit your measurements), and the SerialMonitor instance (for waitFor(), read(), etc).
  * 
- * An example of using this with the AR488 flashed on an arduino, and connecting the TTL signal of the arduino to the SoftwareSerial pins.
- * \verbatim
+ * An example of using this with the AR488 flashed on an arduino, and connecting the TTL signal of the arduino to the SoftwareSerial pins for the ESP8266, or the corresponding HardwareSerial pins for the ESP32.
+ * 
+ * Please note that when using an ESP8266, going for a full 115200 baud can be a bit unreliable, so for a connected AR488, we changed the baud rate on both to 19200 and had reliable operation.
+ * 
+ * For the ESP8266, one must first make a SoftwareSerial instance, e.g.
+\verbatim
+   SoftwareSerial serial_conn
+        (
+            14, // rx pin - D5
+            12, // tx pin - D6,
+            false
+         )
+\endverbatim
+    And then in the collectors list: (Using reading a voltage from a Keysignt 34401A via GPIB as an example)
+\verbatim
    new SerialMonitor(
+    serial_conn
     // Init function
     [](SoftwareSerial &conn){
+      conn.begin(19200)  // Begin serial at given baud rate
       conn.write("++auto 1\n");
       conn.write("++addr 2\r");
       conn.write("++read_tmo_ms 3000\n");
@@ -1059,9 +1106,46 @@ class DigitalMonitor : public DCThread
             String("{\"mean\": ") + String(num_value, 10) + ", \"units\": \"V RMS\"}"
           );
        }
-    }, "sensor/agilent_34401A/volts_ac"
+    }, "sensor/agilent_34401A/volts_ac",
   )
 \endverbatim
+ * For the ESP32, one should use an existing harware serial interface, and set the RX and TX pins as desired
+ \verbatim
+    new SerialMonitor(
+    Serial1, // Use UART 1 
+    // Init function
+    [](HardwareSerial &conn){
+        conn.begin(
+            115200,     // baud rate
+            SERIAL_8N1, // 8 bits, No parity bit, 1 stop bits
+            13,         // RX pin
+            12          // TX pin
+        );
+   
+        conn.write("++addr 4\n");
+        conn.write("++auto 1\n");
+        conn.write("++read_tmo_ms 3000\n");
+    },
+    // Series of requests
+    {
+      [](HardwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
+        conn.write("MEAS:VOLT:AC?\n");
+        mon.waitFor('\n');
+      },
+      [](HardwareSerial &conn, MQTTClient &mqtt, SerialMonitor &mon){
+        String value = mon.read();
+        double num_value (0);
+        sscanf(value.c_str(), "%lf\r", &num_value);
+        
+        mqtt.publish(
+            "sensor/agilent_34401A/volts_ac",
+            String("{\"mean\": ") + String(num_value, 10) + ", \"units\": \"V RMS\"}"
+          );
+       }
+    }, "sensor/agilent_34401A/volts_ac",
+  )
+\endverbatim
+
  * Note that the `++` commands configure the AR488, and let us setup the GPIB bus. The `MEAS:VOLT:AC?\n` command is sent via GPIB
  * to an agilent 34401A 6.5 digit multimeter. (Because we haven't specified a range, the device autoranges each time and takes a while).
  * The measurement is then read in, scanned into a double, and formatted into a JSON string for MQTT transmission. One can (and probably should) use
@@ -1073,37 +1157,29 @@ class DigitalMonitor : public DCThread
 class SerialMonitor : public DCThread
 {
   private:
-    std::vector<std::function<void(SoftwareSerial &, MQTTClient &, SerialMonitor &)>> mRequests;
-    std::function<void(SoftwareSerial &)> mInitFunc;
-    SoftwareSerial mConnection;
+    std::vector<std::function<void(AuxSerial &, MQTTClient &, SerialMonitor &)>> mRequests;
+    AuxSerial & mConnection;
     String mInput;
     char mWaitingFor;
     unsigned int mRequestStep;
-    unsigned long mBaud;
+    std::function<void(AuxSerial &)> mInitFunc;
+
 
   public:
     SerialMonitor(
-                    std::function<void(SoftwareSerial &)> initFunc,
-                    std::vector<std::function<void(SoftwareSerial &, MQTTClient &, SerialMonitor &)>> request_funcs,
+                    AuxSerial & connection,
+                    std::function<void(AuxSerial &)> initFunc,
+                    std::vector<std::function<void(AuxSerial &, MQTTClient &, SerialMonitor &)>> request_funcs,
                     const char *name, //!< Measurement name (like MQTT topic)
-                    unsigned int period = 3000, //<! measurement period in milliseconds
-                    unsigned int rx_pin = 14, // D5
-                    unsigned int tx_pin = 12, // D6
-                    unsigned long baud = 19200
+                    unsigned int period = 3000 //<! measurement period in milliseconds
                   )
       : DCThread(name, period), mRequests(request_funcs),
-      mConnection(rx_pin, tx_pin, false, 256),
+      mConnection(connection),
       mInput(), mWaitingFor('\0'), mRequestStep(0),
-      mInitFunc(initFunc),
-      mBaud(baud)
+      mInitFunc(initFunc)
       {}
 
   void init(){
-        mConnection.begin(mBaud);
-        // Blocking transmission for high-speeds.
-        // Not sure it actually helps.
-        if (mBaud >= 115200)
-          mConnection.enableIntTx(false);
         mInitFunc(mConnection);
   }
 
@@ -1139,12 +1215,10 @@ class SerialMonitor : public DCThread
     {
       // Do polling
       DCThread::loop();
-      //Serial.println("Polling");
 
       // Read from serial
       while(mConnection.available() > 0)
-      {  
-        
+      {
         char c = mConnection.read();
         mInput += String(c);
 
@@ -1156,6 +1230,8 @@ class SerialMonitor : public DCThread
 
 
 };
+
+
 
 
 #include <Adafruit_ADS1015.h>
@@ -1183,9 +1259,8 @@ class ADS1115Monitor : public DCThread {
                     unsigned int i2c_sda = 4, // NodeMCU D2.
                     unsigned int i2c_sdc = 5,  // NodeMCU D1.
                     adsGain_t gain = GAIN_TWOTHIRDS
-
                   )
-      : DCThread(topics[0], period), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain), mDevice(ADS1015_ADDRESS + address_offset)
+      : DCThread(topics[0], period), mDevice(ADS1015_ADDRESS + address_offset), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain)
     {
     } 
 
@@ -1258,15 +1333,15 @@ class ADS1115MonitorOverSampled : public DCThread {
     unsigned int mSDA;
     unsigned int mSDC;
 
+    adsGain_t mGain;
+    
     unsigned int mSamples;
     unsigned int mSampleCounter;
 
     std::vector<double> mMean;
-    std::vector<double> mMin;
     std::vector<double> mMax;
-
-    adsGain_t mGain;
-
+    std::vector<double> mMin;
+    
   public:
     ADS1115MonitorOverSampled(
                     std::vector<const char *> topics,
@@ -1277,7 +1352,7 @@ class ADS1115MonitorOverSampled : public DCThread {
                     adsGain_t gain = GAIN_TWOTHIRDS,
                     unsigned int oversample_rate = 20
                   )
-      : DCThread(topics[0], period/oversample_rate), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain), mDevice(ADS1015_ADDRESS + address_offset),
+      : DCThread(topics[0], period/oversample_rate), mDevice(ADS1015_ADDRESS + address_offset), mTopics(topics), mSDA(i2c_sda), mSDC(i2c_sdc), mGain(gain),
       mSamples(oversample_rate), mSampleCounter(0), mMean(topics.size(), 0), mMax(topics.size(), NAN), mMin(topics.size(), NAN)
     {
     } 
@@ -1493,7 +1568,7 @@ class MLX90393Monitor : public DCThread {
 
       int register_value = (osr2 << 11) | (res_xyz << 5) | (dig_filt << 2) | (osr);
       char tx[] = {MLX90393_REG_WR, (register_value >> 8),  (register_value & 0xFF), MLX90393_CONF3};
-      Wire.write(tx, sizeof(tx));
+      Wire.write((uint8_t *) tx, sizeof(tx));
     }
 
     virtual void poll()

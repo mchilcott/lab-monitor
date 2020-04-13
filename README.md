@@ -4,11 +4,11 @@ This project contains the firmware for the monitoring nodes used in [Kjaergaard 
 
 ## System Overview
 
-This system uses a collection of sensors connected to NodeMCU boards, programmed with this firmware, modified for the attached sensors as needed. These sensors transmit measurements as text strings (in JSON format) to a MQTT (message queue) server. The measurement messages are then processed by a NodeRED server  which lets us respond live to the data, and also by Telegraf, to pipe the data to an InfluxDB database. The data in the database can then be viewed with Grafana.
+This system uses a collection of sensors connected to ESP8266 and ESP32 boards, programmed with this firmware, modified for the attached sensors as needed. These sensors transmit measurements as text strings (in JSON format) to a MQTT (message queue) server. The measurement messages are then processed by a NodeRED server  which lets us respond live to the data, and also by Telegraf, to pipe the data to an InfluxDB database. The data in the database can then be viewed with Grafana.
 
 ![System Overview](doc/system_diagram.pdf "System Overview")
 
-The instructions for setting up the services, and sensor modules can be found below. We do not provide complete documentation for each of the tools and services we use, as they are documented 
+The instructions for setting up the services, and sensor modules can be found below. We do not provide complete documentation for each of the tools and services we use, as they are documented.
 
 ## Features
 - This firmware has drivers for a reasonable number of [sensors](doc/Sensors.md).
@@ -19,13 +19,13 @@ The instructions for setting up the services, and sensor modules can be found be
 ## Getting Started (Firmware)
 1. To compile and upload this firmware, we use [PlatformIO](https://platformio.org/). PlatformIO is capable of programming many different devices, automatically configureing toolchains and doing much of the hard work of setting a development environment up for you. We recommend most people install PlatformIO along with VSCode by following the instructions [here](https://platformio.org/install/ide?install=vscode).
 
-  > If one has a preference for a different editor, many are supported by PlatformIO, or one can use [PlatformIO Core](https://docs.platformio.org/en/latest/core.html) from the commandline (or makefiles, or configure commands in another IDE). This project can also be compiled from the Arduino IDE, though this is left as an exercise for the reader. (One must take care to follow the Arduino conventions for libraries and file names, and also install the arduino toolchain for ESP8266.) We will proceed assuming that you are using VSCode and PlatformIO to program a NodeMCU developement board.
+  > If one has a preference for a different editor, many are supported by PlatformIO, or one can use [PlatformIO Core](https://docs.platformio.org/en/latest/core.html) from the commandline (or makefiles, or configure commands in another IDE). This project can also be compiled from the Arduino IDE, though this is left as an exercise for the reader. (One must take care to follow the Arduino conventions for libraries and file names, and also install the arduino toolchain for ESP8266/ESP32.) We will proceed assuming that you are using VSCode and PlatformIO to program an ESP developement board.
 
-2. Get the code, if you haven't already. You can download a package with all dependencies from the [github releases](https://github.com/mchilcott/nodemcu_monitor/releases).
+2. Get the code, if you haven't already. You can download a package with all dependencies from the [github releases](https://github.com/mchilcott/lab-monitor/releases).
 
   > For the most up-to-date version of the code, using git one can run
   > ```
-  > git clone --recurse-submodules git://github.com/mchilcott/nodemcu_monitor.git
+  > git clone --recurse-submodules git://github.com/kjaergaard-lab/lab-monitor.git
   > ```
   > This will fetch the latest verson of our code, as well as the libraries we use for connecting to different sensors, which are loaded as submodules in git 
   >
@@ -36,7 +36,7 @@ The instructions for setting up the services, and sensor modules can be found be
 
 3. Load the code directory into VSCode -- Use `Open Project` from the PlatformIO Home.
 
-4. Copy `src/auth.example.h` to `src/auth.h`. Inside this file, set the username and password used for remote firmware updates, and for the MQTT connection. Pick a username and password combination for the firmware update. If you don't use MQTT authentication (this is the default with the server setup below), then these can be left as `nullptr`, which disables MQTT authentication.
+4. Copy `src/auth.example.h` to `src/auth.h`. Inside this file, set the username and password used for remote firmware updates. Pick a username and password combination for the firmware update. If you don't use MQTT authentication (this is the default with the server setup below), then these can be left as `nullptr`, which disables MQTT authentication.
 
 5. Open `src/sensor_config.h`. Give the `node_name` variable a meaningful parameter. Each name should be unique to each sensor node, and be meaningful. One can then add a list of monitoring classes. For now, we can start off by setting up a simple analog monitor:
 
@@ -69,20 +69,27 @@ The measurements would then be reported in ohms once every half second.
 
 More examples for monitoring other sensors can be found in the files in `src/config_examples/`.
 
-6. Connect the NodeMCU board to your computer via USB, and upload the firmware. In VSCode, this is done with upload button at the bottom of the screen, or by Terminal -> Run Task (Ctrl+Alt+T), and selecting Platform IO: Upload.
+6. Connect the ESP board board to your computer via USB, and upload the firmware. In VSCode, this is done with upload button at the bottom of the screen, or by Terminal -> Run Task (Ctrl+Alt+T), and selecting Platform IO: Upload, and then Platform IO: Upload Filesystem
 
-This will compile your firmware, and upload via USB. If the compilation fails, pay attention to the errors, and check your code. If the upload fails, make sure that the NodeMCU is connected, and that platformIO is using the correct serial port. You may need to ensure you have the USB serial drivers for the NodeMCU - [try here](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers). The serial port can be configured in `platformio.ini` -- see the [platformio docs](https://docs.platformio.org/en/latest/projectconf/section_env_upload.html).
+From the termial, try
+```
+pio run -e <env> --target upload
+pio run -e <env> --target uploadfs
+```
+where `<env>` is either ESP32 or ESP8266 depending on if you are programming an ESP32 modules or and ESP826 module
+
+This will compile your firmware, and upload via USB. If the compilation fails, pay attention to the errors, and check your code. If the upload fails, make sure that the board is connected, and that platformIO is using the correct serial port. You may need to ensure you have the USB serial drivers for the development board - [try here](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers). The serial port can be configured in `platformio.ini` -- see the [platformio docs](https://docs.platformio.org/en/latest/projectconf/section_env_upload.html).
 
 7. Take the freshly programmed node to the lab. For the analog example, connect the signal between A0 and GND and supply power. Power can be supplied by the USB connector, into the Vin port (Which will take anything between 4.75V and 10V), or put 3.3 V into one of the the 3V3 pins. (Be careful not to overload the chip if taking the last option.)
 
 8. If you haven't already, set follow the instructions below for getting started with the data collection services. These modules require an MQTT server to send information to for them to start collecting data.
 
-9. On your phone (or other convenient wifi device), look for a WiFi network with the name `ESP` followed by a sequence of numbers. Connect to this, then point your web browser to 192.168.4.1, or try to open a website, and you should be redirected here. If the network isn't showing up, then try repowering the NodeMCU.
+9. On your phone (or other convenient wifi device), look for a WiFi network with the name `Setup-ESP` followed by a sequence of numbers. Connect to thisand you should be redirected to the configuration page. If the network isn't showing up, then try repowering the controller.
 
-10. From the page that shows up, select to connect to WiFi, and then:
-  - Select the network (SSID) your monitoring server is on, and provide the password
-  - Set the address of the monitoring server you set up in step 8. (Port 1883 is the default for MQTT. Unless you have a different setup, you won't have to change this.) This can either be the IP address of that computer on the network, or the hostname.
-  - Save this configuration
+10. From the page that shows up, use the menu (upper right-hand corner) to:
+  - Add a new SSID  - Select the network (SSID) your monitoring server is on, and provide the password
+  - MQTT Settings - Set the address of the monitoring server you set up in step 8. (Port 1883 is the default for MQTT. Unless you have a different setup, you won't have to change this.) This can either be the IP address of that computer on the network, or the hostname.
+  - If you don't find the MQTT Settings in the menu, then please make sure that you have run Upload Filesystem (uploadfs) from PlatformIO
 
 11. Confirm that data is getting sent your monitoring server. The WiFi network you found in 7 should disappear. If the node isn't able to connect to WiFi, or the server, then check that there isn't an issue with your configuration and repeat step 7.
 

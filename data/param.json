@@ -1,0 +1,28 @@
+[
+  {
+    "name": "mqttserver",
+    "type": "ACInput",
+    "value": "hugin.px.otago.ac.nz",
+    "placeholder": "MQTT broker server",
+    "label": "Server Hostname"
+  },
+  {
+    "name": "port",
+    "type": "ACInput",
+    "value": "1883",
+    "placeholder": "1883",
+    "label": "Port"
+  },
+  {
+    "name": "user",
+    "type": "ACInput",
+    "value": "",
+    "label": "Username"
+  },
+  {
+    "name": "pass",
+    "type": "ACInput",
+    "value": "",
+    "label": "Password"
+  }
+]
