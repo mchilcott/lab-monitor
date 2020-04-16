@@ -1456,7 +1456,7 @@ class ADS1115MonitorOverSampled : public DCThread {
  * 
  * Note that as well as connecting VCC, GND, then SDI to SDA, and SDC to SCK, you must also connect CSB to VCC (to select I2C), and 
  * connect SDO to either VCC or GND. SDO will change the I2C address used, but the code will search for both addresses. It is simply 
- * important that this is well defined.
+ * important that the voltage at the SDO pin is well defined.
  */
 class BME280Monitor : public DCThread {
   private:

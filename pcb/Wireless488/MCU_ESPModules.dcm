@@ -1,0 +1,13 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP ESP32-WROOM-32
+D ESP-WROOM-32 module, for the ESP32 SoC
+K IoT, ESP32
+$ENDCMP
+#
+$CMP NodeMCU
+D NodeMCU development / IoT board for the ESP8266
+K ESP8266, Module
+$ENDCMP
+#
+#End Doc Library

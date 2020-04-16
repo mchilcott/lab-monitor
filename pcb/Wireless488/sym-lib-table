@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name MCU_ESPModules)(type Legacy)(uri ${KIPRJMOD}/MCU_ESPModules.lib)(options "")(descr ""))
+  (lib (name Wireless488-rescue)(type Legacy)(uri ${KIPRJMOD}/Wireless488-rescue.lib)(options "")(descr ""))
+)
