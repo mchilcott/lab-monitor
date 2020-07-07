@@ -76,7 +76,7 @@ From the termial, try
 pio run -e <env> --target upload
 pio run -e <env> --target uploadfs
 ```
-where `<env>` is either ESP32 or ESP8266 depending on if you are programming an ESP32 modules or and ESP826 module
+where `<env>` is either esp32 or nodemcuv2 depending on if you are programming an ESP32 modules or and ESP826 module
 
 This will compile your firmware, and upload via USB. If the compilation fails, pay attention to the errors, and check your code. If the upload fails, make sure that the board is connected, and that platformIO is using the correct serial port. You may need to ensure you have the USB serial drivers for the development board - [try here](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers). The serial port can be configured in `platformio.ini` -- see the [platformio docs](https://docs.platformio.org/en/latest/projectconf/section_env_upload.html).
 
@@ -84,7 +84,7 @@ This will compile your firmware, and upload via USB. If the compilation fails, p
 
 8. If you haven't already, set follow the instructions below for getting started with the data collection services. These modules require an MQTT server to send information to for them to start collecting data.
 
-9. On your phone (or other convenient wifi device), look for a WiFi network with the name `Setup-ESP` followed by a sequence of numbers. Connect to thisand you should be redirected to the configuration page. If the network isn't showing up, then try repowering the controller.
+9. On your phone (or other convenient wifi device), look for a WiFi network with the name `Setup-ESP` followed by a sequence of numbers. Connect to this with password `monitornode` and you should be redirected to the configuration page. If the network isn't showing up, then try repowering the controller.
 
 10. From the page that shows up, use the menu (upper right-hand corner) to:
   - Add a new SSID  - Select the network (SSID) your monitoring server is on, and provide the password
