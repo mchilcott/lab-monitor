@@ -1,8 +1,8 @@
 M48
-;DRILL file {KiCad 5.0.2+dfsg1-1} date Thu 16 Apr 2020 16:35:56 NZST
-;FORMAT={-:-/ absolute / inch / decimal}
+;DRILL file {KiCad 5.0.2-bee76a0~70~ubuntu18.04.1} date Mon 17 Aug 2020 12:26:08 NZST
+;FORMAT={-:-/ absolute / metric / decimal}
 FMAT,2
-INCH,TZ
+METRIC,TZ
 %
 G90
 G05

@@ -357,12 +357,12 @@ $EndComp
 $Comp
 L Device:R R2
 U 1 1 5E6106F5
-P 3750 2300
-F 0 "R2" V 3700 2450 50  0000 C CNN
-F 1 "0R" V 3750 2300 50  0000 C CNN
-F 2 "Resistor_SMD:R_1206_3216Metric" V 3680 2300 50  0001 C CNN
-F 3 "~" H 3750 2300 50  0001 C CNN
-	1    3750 2300
+P 4600 2300
+F 0 "R2" V 4550 2450 50  0000 C CNN
+F 1 "0R" V 4600 2300 50  0000 C CNN
+F 2 "Resistor_SMD:R_1206_3216Metric" V 4530 2300 50  0001 C CNN
+F 3 "~" H 4600 2300 50  0001 C CNN
+	1    4600 2300
 	0    1    1    0   
 $EndComp
 Wire Wire Line
@@ -407,17 +407,12 @@ Connection ~ 5900 4400
 Wire Wire Line
 	5900 4400 5950 4400
 Wire Wire Line
-	3500 2300 3600 2300
-Wire Wire Line
 	3500 2400 3600 2400
 NoConn ~ 1850 3700
-NoConn ~ 1850 3800
 Wire Wire Line
 	4750 2300 4750 2750
 Wire Wire Line
 	4750 2750 5350 2750
-Wire Wire Line
-	3900 2300 4750 2300
 Wire Wire Line
 	5350 2850 4650 2850
 Wire Wire Line
@@ -435,4 +430,13 @@ F 3 "~" H 10830 6100 50  0001 C CNN
 	1    10800 6300
 	1    0    0    -1  
 $EndComp
+Text Label 4150 2300 0    50   ~ 0
+ESP_TX
+Wire Wire Line
+	4150 2300 4450 2300
+NoConn ~ 3500 2300
+Text Label 1500 3800 0    50   ~ 0
+ESP_TX
+Wire Wire Line
+	1500 3800 1850 3800
 $EndSCHEMATC

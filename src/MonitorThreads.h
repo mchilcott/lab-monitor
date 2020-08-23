@@ -1207,6 +1207,12 @@ class SerialMonitor : public DCThread
 
   virtual void poll()
     {
+      // Clean out buffer from old values
+      // while(mConnection.available() > 0)
+      // {
+      //   mConnection.read();
+      // }
+
       mRequestStep = 0;
       handleRequest();
     }

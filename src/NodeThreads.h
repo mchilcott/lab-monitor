@@ -513,6 +513,14 @@ class HomieThread : public ControlThread {
         mClient.publish(mTopicBase + "$fw/version", __DATE__ " " __TIME__);
         mClient.publish(mTopicBase + "$implementation", "NodeMCU");
     }
+
+    /**
+     * Specify when connected
+     */
+    virtual void onConnect() 
+    {
+      publish_status("connected");
+    }
     
     /**
      * Publish a new device state (e.g. init, ready, alert).

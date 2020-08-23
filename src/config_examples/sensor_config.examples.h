@@ -157,9 +157,14 @@ std::vector<DCThread *> collectors = {
   //     std::make_pair(5, "sensor/power/mosfets/main/5/temperature")
   //   }
   // )
-
+  //
   // Magnet Monitor
   // new MLX90393Monitor("sensor/cell/magnetic_field", 500)
+  //
+  // Pump Control relay
+  // new DigitalOutput("control/water/pump", HIGH, false, true, 5)
+
+
 };
 
 ///////////////////////////////////////////////////////////

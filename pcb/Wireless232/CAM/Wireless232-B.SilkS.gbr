@@ -1,12 +1,12 @@
-G04 #@! TF.GenerationSoftware,KiCad,Pcbnew,5.0.2+dfsg1-1*
-G04 #@! TF.CreationDate,2020-04-16T16:50:33+12:00*
+G04 #@! TF.GenerationSoftware,KiCad,Pcbnew,5.0.2-bee76a0~70~ubuntu18.04.1*
+G04 #@! TF.CreationDate,2020-08-17T12:22:27+12:00*
 G04 #@! TF.ProjectId,Wireless232,57697265-6c65-4737-9332-33322e6b6963,rev?*
 G04 #@! TF.SameCoordinates,Original*
 G04 #@! TF.FileFunction,Legend,Bot*
 G04 #@! TF.FilePolarity,Positive*
 %FSLAX46Y46*%
 G04 Gerber Fmt 4.6, Leading zero omitted, Abs format (unit mm)*
-G04 Created by KiCad (PCBNEW 5.0.2+dfsg1-1) date Thu 16 Apr 2020 16:50:33 NZST*
+G04 Created by KiCad (PCBNEW 5.0.2-bee76a0~70~ubuntu18.04.1) date Mon 17 Aug 2020 12:22:27 NZST*
 %MOMM*%
 %LPD*%
 G01*
